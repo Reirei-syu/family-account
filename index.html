@@ -10,14 +10,42 @@
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
         .nav-active { color: #4f46e5; border-bottom: 3px solid #4f46e5; }
-        .card { transition: all 0.2s; }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+        
+        /* 呼吸光影特效 */
+        @keyframes breathe {
+            0%, 100% { box-shadow: 0 0 15px -5px rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 0 40px 8px rgba(167, 139, 250, 0.55); }
+        }
+        .breathe { animation: breathe 5s ease-in-out infinite; }
+        .breathe-btn { animation: breathe 4s ease-in-out infinite; }
+        .header-glow { animation: breathe 7s ease-in-out infinite; }
+
+        /* 卡通图标选择器 */
+        .cat-btn {
+            width: 58px; height: 58px;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            border-radius: 18px;
+            font-size: 28px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid transparent;
+        }
+        .cat-btn:hover {
+            transform: scale(1.1);
+        }
+        .cat-btn.active {
+            border-color: #4f46e5;
+            background-color: #f0f9ff;
+            transform: scale(1.15);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+        }
+        .cat-btn span { font-size: 10px; margin-top: 4px; font-weight: 500; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-900">
     <div class="max-w-md mx-auto min-h-screen bg-white shadow-2xl overflow-hidden flex flex-col">
         <!-- Header -->
-        <header class="bg-gradient-to-r from-indigo-500 to-violet-500 text-white p-5 flex items-center justify-between">
+        <header class="bg-gradient-to-r from-indigo-500 to-violet-500 text-white p-5 flex items-center justify-between header-glow">
             <div class="flex items-center gap-3">
                 <i class="fa-solid fa-wallet text-3xl"></i>
                 <div>
@@ -31,36 +59,30 @@
             </div>
         </header>
 
-        <!-- Pages -->
+        <!-- 首页：快速记录 -->
         <div class="flex-1 overflow-auto p-4" id="page-home">
-            <!-- 首页：快速记录 + 最近 -->
-            <div class="bg-white rounded-3xl shadow p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow p-6 mb-6 breathe">
                 <h2 class="text-lg font-semibold mb-4 flex items-center gap-2"><i class="fa-solid fa-plus-circle"></i> 快速记录</h2>
-                <div class="space-y-4">
+                <div class="space-y-5">
                     <input id="amount" type="number" step="0.01" placeholder="金额" class="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-indigo-500 text-lg">
                     <input id="date" type="date" class="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-indigo-500">
-                    <select id="category" class="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-indigo-500">
-                        <option value="">选择分类</option>
-                        <option value="餐饮">餐饮</option>
-                        <option value="出行">出行</option>
-                        <option value="学习">学习</option>
-                        <option value="住宿">住宿</option>
-                        <option value="娱乐">娱乐</option>
-                        <option value="医疗">医疗</option>
-                        <option value="购物">购物</option>
-                        <option value="水电费">水电费</option>
-                        <option value="通讯费">通讯费</option>
-                        <option value="其他">其他</option>
-                    </select>
+
+                    <!-- 新卡通图标选择器 -->
+                    <div>
+                        <div class="text-sm text-slate-500 mb-2">支出类型</div>
+                        <div id="category-grid" class="grid grid-cols-5 gap-3"></div>
+                    </div>
+
                     <label class="flex items-center gap-2 text-sm">
                         <input id="isRigid" type="checkbox" class="w-5 h-5 accent-indigo-500">
                         <span class="font-medium">刚性支出</span>
                     </label>
                     <input id="desc" type="text" placeholder="备注（可选）" class="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-indigo-500">
-                    <button onclick="addExpense()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-semibold text-lg shadow-lg">立即记账</button>
+                    <button onclick="addExpense()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-semibold text-lg shadow-lg breathe-btn">立即记账</button>
                 </div>
             </div>
 
+            <!-- 其余部分保持不变 -->
             <div class="grid grid-cols-2 gap-4 mb-6">
                 <div class="bg-white rounded-3xl p-5 shadow text-center">
                     <div class="text-emerald-500 text-2xl font-bold" id="rigid-count">0</div>
@@ -71,11 +93,11 @@
                     <div class="text-xs text-slate-500">非刚性支出笔数</div>
                 </div>
             </div>
-
             <h3 class="font-semibold mb-3 px-1">最近记录</h3>
             <div id="recent-list" class="space-y-3"></div>
         </div>
 
+        <!-- 记录页面 -->
         <div class="hidden flex-1 overflow-auto p-4" id="page-records">
             <div class="flex gap-3 mb-4">
                 <select id="year-filter" onchange="renderRecords()" class="flex-1 px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-indigo-500"></select>
@@ -83,6 +105,7 @@
             <div id="records-list" class="space-y-3"></div>
         </div>
 
+        <!-- 分析页面 -->
         <div class="hidden flex-1 overflow-auto p-4" id="page-analysis">
             <div class="bg-white rounded-3xl p-6 mb-6">
                 <div class="grid grid-cols-2 gap-4">
@@ -97,7 +120,6 @@
                 </div>
                 <button onclick="runAnalysis()" class="mt-6 w-full bg-gradient-to-r from-indigo-500 to-violet-500 text-white py-4 rounded-2xl font-semibold">开始分析</button>
             </div>
-
             <div id="analysis-result" class="hidden space-y-8">
                 <div class="bg-white rounded-3xl p-6 shadow">
                     <h4 class="font-semibold mb-4">总支出</h4>
@@ -117,6 +139,7 @@
             </div>
         </div>
 
+        <!-- 工具页面 -->
         <div class="hidden flex-1 overflow-auto p-4" id="page-tools">
             <div class="space-y-4">
                 <button onclick="exportData()" class="w-full bg-white border border-slate-200 hover:border-indigo-300 py-6 rounded-3xl flex items-center justify-center gap-3 text-lg font-medium">
@@ -144,9 +167,21 @@
 
     <script>
         let expenses = [];
+        let selectedCategory = '';
         let categoryChart, rigidChart, monthlyChart;
 
-        const categories = ["餐饮","出行","学习","住宿","娱乐","医疗","购物","水电费","通讯费","其他"];
+        const categories = [
+            { name: '餐饮', emoji: '🍔' },
+            { name: '出行', emoji: '🚕' },
+            { name: '学习', emoji: '📚' },
+            { name: '住宿', emoji: '🏠' },
+            { name: '娱乐', emoji: '🎮' },
+            { name: '医疗', emoji: '🩹' },
+            { name: '购物', emoji: '🛍️' },
+            { name: '水电费', emoji: '💡' },
+            { name: '通讯费', emoji: '📱' },
+            { name: '其他', emoji: '❓' }
+        ];
 
         function loadData() {
             const saved = localStorage.getItem('familyExpenses');
@@ -155,6 +190,25 @@
 
         function saveData() {
             localStorage.setItem('familyExpenses', JSON.stringify(expenses));
+        }
+
+        function renderCategoryGrid() {
+            const grid = document.getElementById('category-grid');
+            grid.innerHTML = '';
+            categories.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `cat-btn bg-white shadow-sm border-slate-200`;
+                btn.innerHTML = `
+                    <span>${cat.emoji}</span>
+                    <span>${cat.name}</span>
+                `;
+                btn.onclick = () => {
+                    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectedCategory = cat.name;
+                };
+                grid.appendChild(btn);
+            });
         }
 
         function switchPage(n) {
@@ -168,12 +222,11 @@
         function addExpense() {
             const amount = parseFloat(document.getElementById('amount').value);
             const date = document.getElementById('date').value;
-            const category = document.getElementById('category').value;
             const isRigid = document.getElementById('isRigid').checked;
             const desc = document.getElementById('desc').value.trim();
 
-            if(!amount || !date || !category) {
-                alert('请填写金额、日期和分类');
+            if(!amount || !date || !selectedCategory) {
+                alert('请填写金额、日期并选择类型');
                 return;
             }
 
@@ -181,7 +234,7 @@
                 id: Date.now(),
                 date,
                 amount,
-                category,
+                category: selectedCategory,
                 isRigid,
                 desc: desc || '-'
             });
@@ -192,10 +245,11 @@
             // 清空表单
             document.getElementById('amount').value = '';
             document.getElementById('desc').value = '';
+            selectedCategory = '';
+            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
         }
 
-        function renderHome() {
-            // 本月总计
+        function renderHome() { /* 与之前完全相同，省略以节省空间，但实际代码已包含 */ 
             const now = new Date();
             const thisMonth = expenses.filter(e => {
                 const d = new Date(e.date);
@@ -204,13 +258,11 @@
             const monthTotal = thisMonth.reduce((sum, e) => sum + e.amount, 0);
             document.getElementById('total-month').textContent = '¥' + monthTotal.toFixed(2);
 
-            // 刚性/非刚性计数
             const rigidCount = thisMonth.filter(e => e.isRigid).length;
             const nonRigidCount = thisMonth.length - rigidCount;
             document.getElementById('rigid-count').textContent = rigidCount;
             document.getElementById('non-rigid-count').textContent = nonRigidCount;
 
-            // 最近5条
             const recent = expenses.slice(0, 5);
             let html = '';
             recent.forEach(e => {
@@ -229,6 +281,7 @@
             document.getElementById('recent-list').innerHTML = html || '<p class="text-slate-400 text-center py-8">还没有记录，快去记一笔吧～</p>';
         }
 
+        // 以下函数保持不变（deleteExpense, renderRecords, runAnalysis, exportData, importData）
         function deleteExpense(id) {
             if(confirm('确定删除这条记录？')) {
                 expenses = expenses.filter(e => e.id !== id);
@@ -276,33 +329,24 @@
             const total = filtered.reduce((s,e)=>s+e.amount,0);
             document.getElementById('total-expense').textContent = '¥' + total.toFixed(2);
 
-            // 类别饼图
             const catMap = {};
             filtered.forEach(e => catMap[e.category] = (catMap[e.category]||0) + e.amount);
             if(categoryChart) categoryChart.destroy();
             categoryChart = new Chart(document.getElementById('category-chart'), {
                 type: 'doughnut',
-                data: {
-                    labels: Object.keys(catMap),
-                    datasets: [{ data: Object.values(catMap), backgroundColor: ['#6366f1','#a5b4fc','#c4d0ff','#818cf8','#4f46e5'] }]
-                },
+                data: { labels: Object.keys(catMap), datasets: [{ data: Object.values(catMap), backgroundColor: ['#6366f1','#a5b4fc','#c4d0ff','#818cf8','#4f46e5'] }] },
                 options: { plugins: { legend: { position: 'bottom' } } }
             });
 
-            // 刚性饼图
             const rigidSum = filtered.filter(e=>e.isRigid).reduce((s,e)=>s+e.amount,0);
             const nonRigidSum = total - rigidSum;
             if(rigidChart) rigidChart.destroy();
             rigidChart = new Chart(document.getElementById('rigid-chart'), {
                 type: 'pie',
-                data: {
-                    labels: ['刚性支出','非刚性支出'],
-                    datasets: [{ data: [rigidSum, nonRigidSum], backgroundColor: ['#10b981','#f59e0b'] }]
-                },
+                data: { labels: ['刚性支出','非刚性支出'], datasets: [{ data: [rigidSum, nonRigidSum], backgroundColor: ['#10b981','#f59e0b'] }] },
                 options: { plugins: { legend: { position: 'bottom' } } }
             });
 
-            // 月度柱状
             const monthMap = {};
             filtered.forEach(e => {
                 const m = e.date.substring(0,7);
@@ -311,10 +355,7 @@
             if(monthlyChart) monthlyChart.destroy();
             monthlyChart = new Chart(document.getElementById('monthly-chart'), {
                 type: 'bar',
-                data: {
-                    labels: Object.keys(monthMap),
-                    datasets: [{ label: '月支出', data: Object.values(monthMap), backgroundColor: '#6366f1' }]
-                },
+                data: { labels: Object.keys(monthMap), datasets: [{ label: '月支出', data: Object.values(monthMap), backgroundColor: '#6366f1' }] },
                 options: { scales: { y: { beginAtZero: true } } }
             });
 
@@ -360,6 +401,7 @@
         window.onload = function() {
             loadData();
             document.getElementById('date').value = new Date().toISOString().slice(0,10);
+            renderCategoryGrid();
             switchPage(0);
             renderHome();
         };
