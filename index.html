@@ -509,4 +509,41 @@
         function exportData() {
             const dataStr = JSON.stringify(expenses, null, 2);
             const blob = new Blob([dataStr], {type: 'application/json'});
-            const u
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `小账本备份_${new Date().toISOString().slice(0,10)}.json`; a.click();
+        }
+
+        function importData(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    const imported = JSON.parse(ev.target.result);
+                    if(Array.isArray(imported)) {
+                        if(confirm(`检测到 ${imported.length} 条记录，是否覆盖当前数据？(取消则为合并)`)) expenses = imported; 
+                        else expenses = expenses.concat(imported);
+                        saveData(); alert('导入成功！'); location.reload();
+                    }
+                } catch(err) { alert('文件格式不正确'); }
+            };
+            reader.readAsText(file);
+        }
+
+        window.onload = function() {
+            loadData();
+            const today = new Date().toISOString().slice(0,10);
+            document.getElementById('date').value = today;
+            document.getElementById('custom-start').value = new Date(new Date().setDate(new Date().getDate()-30)).toISOString().slice(0,10);
+            document.getElementById('custom-end').value = today;
+            document.getElementById('start-date').value = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+            document.getElementById('end-date').value = today;
+
+            renderCategoryGrid();
+            renderQuickFilters();
+            switchPage(0);
+            renderHome();
+        };
+    </script>
+</body>
+</html>
