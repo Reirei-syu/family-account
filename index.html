@@ -53,27 +53,47 @@
         }
         .date-pill:focus { border-color: #6366f1; background: white; }
         
+        /* 列表式日期选择器优化 */
+        .date-list-input {
+            text-align: right;
+            background: transparent;
+            font-family: inherit;
+            color: #334155;
+            font-weight: 500;
+            width: 160px;
+        }
+        
         /* 隐藏滚动条 */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
         /* 解决 Safari 底部遮挡问题 */
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+        /* 特效画布样式 */
+        #dust-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 关键：让点击事件穿透画布 */
+            z-index: 9999;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 select-none">
     
-    <!-- 主容器：w-full 确保占满屏幕宽度 -->
+    <!-- 特效画布 -->
+    <canvas id="dust-canvas"></canvas>
+
     <div class="w-full max-w-md mx-auto min-h-screen bg-slate-50 flex flex-col relative shadow-2xl overflow-hidden">
         
-        <!-- Header 区域重构 -->
-        <!-- 1. 背景层：独立出来处理圆角和溢出隐藏，避免裁剪子元素 -->
+        <!-- Header 区域 -->
         <div class="relative bg-indigo-600 rounded-b-[40px] shadow-lg z-10 overflow-hidden">
-            <!-- 装饰背景球 -->
             <div class="absolute top-0 right-0 w-40 h-40 bg-white opacity-5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
             <div class="absolute bottom-0 left-0 w-32 h-32 bg-indigo-400 opacity-20 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
             
-            <!-- Header 内容：增加底部 padding (pb-20) 为下方卡片腾出“悬挂”空间 -->
             <header class="pt-10 pb-20 px-6 relative">
                 <div class="relative flex justify-between items-start">
                     <div>
@@ -87,7 +107,7 @@
             </header>
         </div>
 
-        <!-- 2. 统计卡片层：使用负 Margin (-mt-12) 向上提，而不是 absolute，彻底解决显示不全问题 -->
+        <!-- 统计卡片层 -->
         <div class="px-6 -mt-12 relative z-20 flex gap-4 mb-2">
             <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between ring-1 ring-slate-100">
                 <div>
@@ -114,34 +134,25 @@
             
             <!-- 1. 首页：记账 -->
             <div id="page-home" class="space-y-5 pb-24">
-                <!-- 记账主卡片 -->
                 <div class="bg-white rounded-[32px] p-5 shadow-sm card-glow border border-slate-100/50">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-slate-800 font-bold text-lg">记一笔</h2>
                         <input id="date" type="date" class="date-pill">
                     </div>
 
-                    <!-- 金额输入 -->
                     <div class="relative mb-6">
                         <div class="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 text-2xl font-light">¥</div>
                         <input id="amount" type="number" step="0.01" placeholder="0.00" class="w-full text-center text-4xl font-bold py-2 bg-transparent border-b-2 border-slate-100 focus:border-indigo-500 focus:outline-none text-slate-800 placeholder-slate-200 transition-colors">
                     </div>
 
-                    <!-- 分类网格 -->
                     <div id="category-grid" class="grid grid-cols-5 gap-y-4 gap-x-2 mb-6"></div>
 
-                    <!-- 底部操作栏：修复按钮挤压问题 -->
                     <div class="flex items-center gap-2">
-                        <!-- 刚性开关 -->
                         <label class="shrink-0 flex flex-col items-center justify-center bg-slate-50 w-12 h-[52px] rounded-xl cursor-pointer border border-transparent hover:border-slate-200 transition-colors">
                             <input id="isRigid" type="checkbox" class="w-4 h-4 accent-indigo-500 rounded mb-1">
                             <span class="text-[10px] font-medium text-slate-500 leading-none">刚性</span>
                         </label>
-                        
-                        <!-- 备注输入框：flex-1 自动填充剩余空间 -->
                         <input id="desc" type="text" placeholder="备注..." class="flex-1 min-w-0 h-[52px] px-4 bg-slate-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100">
-                        
-                        <!-- 确认按钮：shrink-0 防止被压扁，宽度加大到 w-16 -->
                         <button onclick="addExpense()" class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white w-16 h-[52px] rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center transition-transform active:scale-95">
                             <i class="fa-solid fa-check text-xl"></i>
                         </button>
@@ -159,17 +170,18 @@
                 <div id="quick-filters" class="flex gap-2 overflow-x-auto no-scrollbar pb-1"></div>
                 
                 <div id="custom-date-panel" class="hidden bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-                    <div class="grid grid-cols-2 gap-3 mb-4">
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">开始</label>
-                            <input id="custom-start" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    <h3 class="text-xs text-slate-400 font-bold mb-3 uppercase tracking-wider">选择时间段</h3>
+                    <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-4 overflow-hidden">
+                        <div class="flex items-center justify-between p-3 border-b border-slate-200 active:bg-slate-100 transition-colors">
+                            <span class="text-sm text-slate-500 pl-1">开始日期</span>
+                            <input id="custom-start" type="date" class="date-list-input focus:outline-none">
                         </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">结束</label>
-                            <input id="custom-end" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                        <div class="flex items-center justify-between p-3 active:bg-slate-100 transition-colors">
+                            <span class="text-sm text-slate-500 pl-1">结束日期</span>
+                            <input id="custom-end" type="date" class="date-list-input focus:outline-none">
                         </div>
                     </div>
-                    <button onclick="applyCustomFilter()" class="w-full bg-slate-900 text-white py-2.5 rounded-xl text-sm font-medium">应用筛选</button>
+                    <button onclick="applyCustomFilter()" class="w-full bg-slate-900 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-slate-200">应用筛选</button>
                 </div>
 
                 <div class="flex justify-between items-center px-1">
@@ -182,25 +194,30 @@
 
             <!-- 3. 分析页 -->
             <div id="page-analysis" class="hidden space-y-5 pb-24">
-                <div class="bg-white rounded-3xl p-5 shadow-sm">
-                    <h3 class="font-bold text-slate-800 mb-4 text-sm">分析区间</h3>
-                    <div class="grid grid-cols-2 gap-3 mb-4">
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">从</label>
-                            <input id="start-date" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800 mb-4 text-sm flex items-center gap-2"><i class="fa-solid fa-calendar-days text-indigo-500"></i> 分析区间</h3>
+                    
+                    <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-5 overflow-hidden">
+                        <div class="flex items-center justify-between p-3.5 border-b border-slate-200 active:bg-slate-100 transition-colors">
+                            <span class="text-sm text-slate-500 font-medium pl-1">开始日期</span>
+                            <input id="start-date" type="date" class="date-list-input focus:outline-none">
                         </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">至</label>
-                            <input id="end-date" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        <div class="flex items-center justify-between p-3.5 active:bg-slate-100 transition-colors">
+                            <span class="text-sm text-slate-500 font-medium pl-1">结束日期</span>
+                            <input id="end-date" type="date" class="date-list-input focus:outline-none">
                         </div>
                     </div>
-                    <button onclick="runAnalysis()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium shadow-md shadow-indigo-200">生成报表</button>
+
+                    <button onclick="runAnalysis()" class="w-full bg-indigo-600 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-chart-simple"></i> 生成报表
+                    </button>
                 </div>
 
                 <div id="analysis-result" class="hidden space-y-5">
-                    <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 text-center">
-                        <div class="text-xs text-slate-400 mb-1">区间总支出</div>
-                        <div id="total-expense" class="text-4xl font-bold text-indigo-600 tracking-tight">¥0.00</div>
+                    <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 text-center relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-indigo-50 rounded-full blur-xl -mr-5 -mt-5"></div>
+                        <div class="text-xs text-slate-400 mb-1 relative z-10">区间总支出</div>
+                        <div id="total-expense" class="text-4xl font-bold text-indigo-600 tracking-tight relative z-10">¥0.00</div>
                     </div>
                     
                     <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
@@ -280,6 +297,7 @@
     </div>
 
     <script>
+        // --- 核心记账逻辑 ---
         let expenses = [];
         let selectedCategory = '';
         let categoryChart, rigidChart, monthlyChart;
@@ -586,6 +604,104 @@
             reader.readAsText(file);
         }
 
+        // --- 星尘特效逻辑 ---
+        function initStarDust() {
+            const canvas = document.getElementById('dust-canvas');
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+            
+            // 调整画布尺寸
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            // 粒子配色：蓝、紫、金、白
+            const colors = ['#6366f1', '#a855f7', '#f59e0b', '#ffffff', '#cbd5e1'];
+
+            class Particle {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.size = Math.random() * 3 + 1; // 随机大小
+                    this.speedX = Math.random() * 2 - 1; // 水平扩散
+                    this.speedY = Math.random() * 2 - 1.5; // 初始略微向上
+                    this.gravity = 0.05; // 重力下落
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                    this.life = 1.0; // 透明度/生命值
+                    this.decay = Math.random() * 0.02 + 0.01; // 消失速度
+                }
+                update() {
+                    this.speedY += this.gravity;
+                    this.x += this.speedX;
+                    this.y += this.speedY;
+                    this.life -= this.decay;
+                    this.size -= 0.05; // 变小
+                }
+                draw() {
+                    ctx.save();
+                    ctx.globalAlpha = this.life;
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, Math.max(0, this.size), 0, Math.PI * 2);
+                    ctx.fill();
+                    // 加一点闪光效果
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = this.color;
+                    ctx.restore();
+                }
+            }
+
+            function handleInput(x, y) {
+                // 每次触碰产生多个粒子
+                for (let i = 0; i < 6; i++) {
+                    particles.push(new Particle(x, y));
+                }
+            }
+
+            // 触摸事件
+            window.addEventListener('touchstart', (e) => {
+                for (let i = 0; i < e.touches.length; i++) {
+                    handleInput(e.touches[i].clientX, e.touches[i].clientY);
+                }
+            }, {passive: true});
+
+            window.addEventListener('touchmove', (e) => {
+                for (let i = 0; i < e.touches.length; i++) {
+                    handleInput(e.touches[i].clientX, e.touches[i].clientY);
+                }
+            }, {passive: true});
+
+            // 鼠标事件（方便在电脑端测试）
+            let isMouseDown = false;
+            window.addEventListener('mousedown', (e) => {
+                isMouseDown = true;
+                handleInput(e.clientX, e.clientY);
+            });
+            window.addEventListener('mouseup', () => isMouseDown = false);
+            window.addEventListener('mousemove', (e) => {
+                if(isMouseDown) handleInput(e.clientX, e.clientY);
+            });
+
+            // 动画循环
+            function animate() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw();
+                    // 移除消失的粒子
+                    if (particles[i].life <= 0 || particles[i].size <= 0) {
+                        particles.splice(i, 1);
+                        i--;
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
         window.onload = function() {
             loadData();
             const today = new Date().toISOString().slice(0,10);
@@ -599,6 +715,9 @@
             renderQuickFilters();
             switchPage(0);
             renderHome();
+            
+            // 启动特效
+            initStarDust();
         };
     </script>
 </body>
