@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>家庭小账本 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -49,88 +49,101 @@
             font-size: 0.85rem; color: #475569;
             outline: none; text-align: center;
             transition: border 0.2s;
-            max-width: 130px; /* 限制宽度 */
+            max-width: 130px;
         }
         .date-pill:focus { border-color: #6366f1; background: white; }
         
-        /* 隐藏滚动条但保留功能 */
+        /* 隐藏滚动条 */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 解决 Safari 底部遮挡问题 */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 select-none">
     
-    <div class="max-w-md mx-auto h-screen bg-slate-50 flex flex-col relative shadow-2xl overflow-hidden">
+    <!-- 主容器：w-full 确保占满屏幕宽度 -->
+    <div class="w-full max-w-md mx-auto min-h-screen bg-slate-50 flex flex-col relative shadow-2xl overflow-hidden">
         
-        <!-- Header: 更加沉浸式 -->
-        <header class="bg-indigo-600 text-white pt-10 pb-16 px-6 relative overflow-hidden rounded-b-[40px] shadow-lg z-10">
-            <div class="absolute top-0 right-0 w-40 h-40 bg-white opacity-5 rounded-full blur-3xl -mr-10 -mt-10"></div>
-            <div class="absolute bottom-0 left-0 w-32 h-32 bg-indigo-400 opacity-20 rounded-full blur-2xl -ml-10 -mb-10"></div>
+        <!-- Header 区域重构 -->
+        <!-- 1. 背景层：独立出来处理圆角和溢出隐藏，避免裁剪子元素 -->
+        <div class="relative bg-indigo-600 rounded-b-[40px] shadow-lg z-10 overflow-hidden">
+            <!-- 装饰背景球 -->
+            <div class="absolute top-0 right-0 w-40 h-40 bg-white opacity-5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+            <div class="absolute bottom-0 left-0 w-32 h-32 bg-indigo-400 opacity-20 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
             
-            <div class="relative flex justify-between items-start">
+            <!-- Header 内容：增加底部 padding (pb-20) 为下方卡片腾出“悬挂”空间 -->
+            <header class="pt-10 pb-20 px-6 relative">
+                <div class="relative flex justify-between items-start">
+                    <div>
+                        <div class="text-indigo-100 text-sm mb-1">本月总支出</div>
+                        <div id="total-month" class="font-bold text-4xl tracking-tight text-white">¥0.00</div>
+                    </div>
+                    <div class="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm text-white">
+                        <i class="fa-solid fa-wallet"></i>
+                    </div>
+                </div>
+            </header>
+        </div>
+
+        <!-- 2. 统计卡片层：使用负 Margin (-mt-12) 向上提，而不是 absolute，彻底解决显示不全问题 -->
+        <div class="px-6 -mt-12 relative z-20 flex gap-4 mb-2">
+            <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between ring-1 ring-slate-100">
                 <div>
-                    <div class="text-indigo-100 text-sm mb-1">本月总支出</div>
-                    <div id="total-month" class="font-bold text-4xl tracking-tight">¥0.00</div>
+                    <div class="text-[10px] text-slate-400">刚性支出</div>
+                    <div class="font-bold text-emerald-500 text-lg" id="rigid-count">0</div>
                 </div>
-                <div class="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
-                    <i class="fa-solid fa-wallet"></i>
-                </div>
-            </div>
-            
-            <!-- 两个统计小卡片 -->
-            <div class="absolute -bottom-8 left-6 right-6 flex gap-4">
-                <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between">
-                    <div>
-                        <div class="text-[10px] text-slate-400">刚性支出</div>
-                        <div class="font-bold text-emerald-500 text-lg" id="rigid-count">0</div>
-                    </div>
-                    <div class="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500 text-xs">
-                        <i class="fa-solid fa-lock"></i>
-                    </div>
-                </div>
-                <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between">
-                    <div>
-                        <div class="text-[10px] text-slate-400">非刚性支出</div>
-                        <div class="font-bold text-amber-500 text-lg" id="non-rigid-count">0</div>
-                    </div>
-                    <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-xs">
-                        <i class="fa-solid fa-coffee"></i>
-                    </div>
+                <div class="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500 text-xs">
+                    <i class="fa-solid fa-lock"></i>
                 </div>
             </div>
-        </header>
+            <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between ring-1 ring-slate-100">
+                <div>
+                    <div class="text-[10px] text-slate-400">非刚性支出</div>
+                    <div class="font-bold text-amber-500 text-lg" id="non-rigid-count">0</div>
+                </div>
+                <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-xs">
+                    <i class="fa-solid fa-coffee"></i>
+                </div>
+            </div>
+        </div>
 
         <!-- 内容区域 -->
-        <div class="flex-1 overflow-auto pt-12 pb-4 px-4 no-scrollbar" id="content-area">
+        <div class="flex-1 overflow-auto pt-4 pb-4 px-4 no-scrollbar" id="content-area">
             
-            <!-- 1. 首页：记账 (默认显示) -->
-            <div id="page-home" class="space-y-5 pb-20">
+            <!-- 1. 首页：记账 -->
+            <div id="page-home" class="space-y-5 pb-24">
                 <!-- 记账主卡片 -->
                 <div class="bg-white rounded-[32px] p-5 shadow-sm card-glow border border-slate-100/50">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-slate-800 font-bold text-lg">记一笔</h2>
-                        <!-- 日期选择器优化：右上角小胶囊 -->
                         <input id="date" type="date" class="date-pill">
                     </div>
 
-                    <!-- 金额输入：大字体居中 -->
+                    <!-- 金额输入 -->
                     <div class="relative mb-6">
                         <div class="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 text-2xl font-light">¥</div>
                         <input id="amount" type="number" step="0.01" placeholder="0.00" class="w-full text-center text-4xl font-bold py-2 bg-transparent border-b-2 border-slate-100 focus:border-indigo-500 focus:outline-none text-slate-800 placeholder-slate-200 transition-colors">
                     </div>
 
-                    <!-- 分类网格：美化版 -->
+                    <!-- 分类网格 -->
                     <div id="category-grid" class="grid grid-cols-5 gap-y-4 gap-x-2 mb-6"></div>
 
-                    <!-- 底部操作栏 -->
-                    <div class="flex items-center gap-3">
-                        <label class="flex items-center gap-2 bg-slate-50 px-3 py-2.5 rounded-xl cursor-pointer border border-transparent hover:border-slate-200 transition-colors">
-                            <input id="isRigid" type="checkbox" class="w-4 h-4 accent-indigo-500 rounded">
-                            <span class="text-xs font-medium text-slate-600">刚性</span>
+                    <!-- 底部操作栏：修复按钮挤压问题 -->
+                    <div class="flex items-center gap-2">
+                        <!-- 刚性开关 -->
+                        <label class="shrink-0 flex flex-col items-center justify-center bg-slate-50 w-12 h-[52px] rounded-xl cursor-pointer border border-transparent hover:border-slate-200 transition-colors">
+                            <input id="isRigid" type="checkbox" class="w-4 h-4 accent-indigo-500 rounded mb-1">
+                            <span class="text-[10px] font-medium text-slate-500 leading-none">刚性</span>
                         </label>
-                        <input id="desc" type="text" placeholder="备注..." class="flex-1 px-4 py-2.5 bg-slate-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100">
-                        <button onclick="addExpense()" class="bg-indigo-600 hover:bg-indigo-700 text-white w-12 h-10 rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center transition-transform active:scale-90">
-                            <i class="fa-solid fa-check"></i>
+                        
+                        <!-- 备注输入框：flex-1 自动填充剩余空间 -->
+                        <input id="desc" type="text" placeholder="备注..." class="flex-1 min-w-0 h-[52px] px-4 bg-slate-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                        
+                        <!-- 确认按钮：shrink-0 防止被压扁，宽度加大到 w-16 -->
+                        <button onclick="addExpense()" class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white w-16 h-[52px] rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center transition-transform active:scale-95">
+                            <i class="fa-solid fa-check text-xl"></i>
                         </button>
                     </div>
                 </div>
@@ -142,11 +155,9 @@
             </div>
 
             <!-- 2. 记录页 -->
-            <div id="page-records" class="hidden space-y-4 pb-20">
-                <!-- 快捷筛选 -->
+            <div id="page-records" class="hidden space-y-4 pb-24">
                 <div id="quick-filters" class="flex gap-2 overflow-x-auto no-scrollbar pb-1"></div>
                 
-                <!-- 自定义日期筛选：并排布局优化 -->
                 <div id="custom-date-panel" class="hidden bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <div class="grid grid-cols-2 gap-3 mb-4">
                         <div>
@@ -170,8 +181,7 @@
             </div>
 
             <!-- 3. 分析页 -->
-            <div id="page-analysis" class="hidden space-y-5 pb-20">
-                <!-- 分析日期筛选：并排布局优化 -->
+            <div id="page-analysis" class="hidden space-y-5 pb-24">
                 <div class="bg-white rounded-3xl p-5 shadow-sm">
                     <h3 class="font-bold text-slate-800 mb-4 text-sm">分析区间</h3>
                     <div class="grid grid-cols-2 gap-3 mb-4">
@@ -219,7 +229,7 @@
             </div>
 
             <!-- 4. 工具页 -->
-            <div id="page-tools" class="hidden space-y-4 pb-20">
+            <div id="page-tools" class="hidden space-y-4 pb-24">
                 <div class="bg-white rounded-3xl p-6 shadow-sm mb-6">
                     <h2 class="font-bold text-lg mb-1">数据管理</h2>
                     <p class="text-xs text-slate-400">数据仅存储在您的设备本地</p>
@@ -252,8 +262,8 @@
 
         </div>
 
-        <!-- 底部导航：更轻量 -->
-        <nav class="bg-white/90 backdrop-blur-md border-t border-slate-100 flex text-slate-400 absolute bottom-0 w-full z-20 pb-safe">
+        <!-- 底部导航 -->
+        <nav class="bg-white/95 backdrop-blur-md border-t border-slate-100 flex text-slate-400 absolute bottom-0 w-full z-30 pb-safe">
             <button onclick="switchPage(0)" class="nav-item flex-1 py-3 flex flex-col items-center nav-active" id="nav-0">
                 <i class="fa-solid fa-house text-xl mb-1"></i><span class="text-[10px] font-medium">记账</span>
             </button>
@@ -276,7 +286,6 @@
         let currentFilter = 'thisMonth';
         let customStart = '', customEnd = '';
 
-        // 优化后的类别列表
         const categories = [
             {name:'餐饮',emoji:'🍔'},{name:'出行',emoji:'🚕'},{name:'购物',emoji:'🛍️'},
             {name:'日用',emoji:'🧻'},{name:'娱乐',emoji:'🎮'},{name:'医疗',emoji:'💊'},
@@ -291,7 +300,6 @@
             localStorage.setItem('familyExpenses', JSON.stringify(expenses));
         }
 
-        // 渲染优化的图标网格
         function renderCategoryGrid() {
             const grid = document.getElementById('category-grid');
             grid.innerHTML = '';
@@ -361,9 +369,9 @@
             const desc = descInput.value.trim();
 
             if(!amount || !date || !selectedCategory) { 
-                // 简单的震动反馈模拟
                 amountInput.classList.add('bg-red-50');
                 setTimeout(()=>amountInput.classList.remove('bg-red-50'), 200);
+                if(!selectedCategory) alert('请选择支出类型');
                 return; 
             }
 
@@ -371,16 +379,13 @@
             saveData(); 
             renderHome(); 
             
-            // 简单的动画反馈
             const btn = document.querySelector('button[onclick="addExpense()"]');
             const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-check-double"></i>';
+            btn.innerHTML = '<i class="fa-solid fa-thumbs-up"></i>';
             setTimeout(() => { btn.innerHTML = originalHTML; }, 1000);
 
             amountInput.value = ''; 
             descInput.value = '';
-            // 保持类别选中状态，方便连续记账，或者也可以重置
-            // selectedCategory = ''; document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
         }
 
         function renderHome() {
@@ -440,14 +445,13 @@
 
             const yearSelect = document.getElementById('year-filter');
             const years = [...new Set(expenses.map(e => new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
-            if(yearSelect.options.length <= 1) { // 简单防止重复渲染
+            if(yearSelect.options.length <= 1) { 
                  yearSelect.innerHTML = `<option value="">全部年份</option>` + years.map(y => `<option value="${y}">${y}年</option>`).join('');
             }
             const selectedYear = yearSelect.value;
             if (selectedYear) filtered = filtered.filter(e => new Date(e.date).getFullYear() == selectedYear);
 
             let html = '';
-            // 按日期分组渲染
             const grouped = {};
             filtered.forEach(e => {
                 if(!grouped[e.date]) grouped[e.date] = [];
@@ -497,10 +501,8 @@
             const total = filtered.reduce((s,e)=>s+e.amount,0);
             document.getElementById('total-expense').textContent = '¥' + total.toFixed(2);
 
-            // 1. 类别图表
             const catMap = {};
             filtered.forEach(e => catMap[e.category] = (catMap[e.category]||0) + e.amount);
-            // 找出消费最高的类别
             let topCat = '-', maxVal = 0;
             for(let c in catMap) { if(catMap[c]>maxVal){maxVal=catMap[c]; topCat=c;} }
             document.getElementById('top-category').textContent = topCat;
@@ -522,7 +524,6 @@
                 }
             });
 
-            // 2. 刚性占比
             const rigidSum = filtered.filter(e=>e.isRigid).reduce((s,e)=>s+e.amount,0);
             const nonRigidSum = total - rigidSum;
             if(rigidChart) rigidChart.destroy();
@@ -532,10 +533,8 @@
                 options: { plugins: { legend: { display: false } } }
             });
 
-            // 3. 月度趋势
             const monthMap = {};
             filtered.forEach(e => { const m = e.date.substring(5,7)+'月'; monthMap[m] = (monthMap[m]||0) + e.amount; });
-            // 排序月份
             const sortedMonths = Object.keys(monthMap).sort();
             
             if(monthlyChart) monthlyChart.destroy();
@@ -589,7 +588,6 @@
 
         window.onload = function() {
             loadData();
-            // 初始化日期为今天
             const today = new Date().toISOString().slice(0,10);
             document.getElementById('date').value = today;
             document.getElementById('custom-start').value = new Date(new Date().setDate(new Date().getDate()-30)).toISOString().slice(0,10);
