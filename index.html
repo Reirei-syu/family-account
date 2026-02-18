@@ -53,14 +53,14 @@
         }
         .date-pill:focus { border-color: #6366f1; background: white; }
         
-        /* 列表式日期选择器优化 (解决重叠问题的关键) */
+        /* 列表式日期选择器优化 */
         .date-list-input {
             text-align: right;
             background: transparent;
             font-family: inherit;
             color: #334155;
             font-weight: 500;
-            width: 160px; /* 限制宽度，强制右对齐 */
+            width: 160px;
         }
         
         /* 隐藏滚动条 */
@@ -131,6 +131,7 @@
                         <input id="amount" type="number" step="0.01" placeholder="0.00" class="w-full text-center text-4xl font-bold py-2 bg-transparent border-b-2 border-slate-100 focus:border-indigo-500 focus:outline-none text-slate-800 placeholder-slate-200 transition-colors">
                     </div>
 
+                    <!-- 分类网格 -->
                     <div id="category-grid" class="grid grid-cols-5 gap-y-4 gap-x-2 mb-6"></div>
 
                     <div class="flex items-center gap-2">
@@ -155,7 +156,6 @@
             <div id="page-records" class="hidden space-y-4 pb-24">
                 <div id="quick-filters" class="flex gap-2 overflow-x-auto no-scrollbar pb-1"></div>
                 
-                <!-- 记录页：自定义筛选日期 (使用列表样式修复重叠) -->
                 <div id="custom-date-panel" class="hidden bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h3 class="text-xs text-slate-400 font-bold mb-3 uppercase tracking-wider">选择时间段</h3>
                     <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-4 overflow-hidden">
@@ -184,7 +184,6 @@
                 <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h3 class="font-bold text-slate-800 mb-4 text-sm flex items-center gap-2"><i class="fa-solid fa-calendar-days text-indigo-500"></i> 分析区间</h3>
                     
-                    <!-- 修复点：改为列表式布局，彻底解决并排显示重叠问题 -->
                     <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-5 overflow-hidden">
                         <div class="flex items-center justify-between p-3.5 border-b border-slate-200 active:bg-slate-100 transition-colors">
                             <span class="text-sm text-slate-500 font-medium pl-1">开始日期</span>
@@ -285,16 +284,20 @@
     </div>
 
     <script>
+        // --- 核心记账逻辑 ---
         let expenses = [];
         let selectedCategory = '';
         let categoryChart, rigidChart, monthlyChart;
         let currentFilter = 'thisMonth';
         let customStart = '', customEnd = '';
 
+        // 优化后的分类列表：10项，对应您要求的分类
         const categories = [
-            {name:'餐饮',emoji:'🍔'},{name:'出行',emoji:'🚕'},{name:'购物',emoji:'🛍️'},
-            {name:'日用',emoji:'🧻'},{name:'娱乐',emoji:'🎮'},{name:'医疗',emoji:'💊'},
-            {name:'居住',emoji:'🏠'},{name:'通讯',emoji:'📱'},{name:'服饰',emoji:'👕'},{name:'其他',emoji:'🧩'}
+            {name:'餐饮',emoji:'🍜'}, {name:'出行',emoji:'🚕'},
+            {name:'子女',emoji:'🧸'}, {name:'日用',emoji:'🧼'},
+            {name:'娱乐',emoji:'🎮'}, {name:'医疗',emoji:'💊'},
+            {name:'水电',emoji:'💡'}, {name:'通讯',emoji:'📱'},
+            {name:'服装',emoji:'👕'}, {name:'其他',emoji:'🧩'}
         ];
 
         function loadData() {
