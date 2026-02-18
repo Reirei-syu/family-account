@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>家庭小账本 Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        /* 导航激活样式 */
+        .nav-active { color: #6366f1; }
+        .nav-active i { transform: translateY(-2px); transition: transform 0.2s; }
+        .nav-item { transition: all 0.2s; }
+        
+        /* 呼吸灯效果 */
+        @keyframes breathe { 0%,100% { box-shadow: 0 4px 20px -5px rgba(99,102,241,0.2); } 50% { box-shadow: 0 4px 30px 0px rgba(167,139,250,0.4); } }
+        .card-glow { animation: breathe 6s ease-in-out infinite; }
+        
+        /* 类别按钮美化 */
+        .cat-btn {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border-radius: 16px; padding: 10px 0;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: transparent;
+        }
+        .cat-icon-circle {
+            width: 48px; height: 48px;
+            background: #f1f5f9; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; margin-bottom: 6px;
+            transition: all 0.2s;
+        }
+        .cat-btn:active { transform: scale(0.95); }
+        .cat-btn.active .cat-icon-circle {
+            background: #4f46e5; color: white;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+            transform: scale(1.1);
+        }
+        .cat-btn span { font-size: 12px; color: #64748b; font-weight: 500; }
+        .cat-btn.active span { color: #4f46e5; font-weight: 600; }
+
+        /* 自定义日期输入框样式 */
+        .date-pill {
+            background: #f8fafc; border: 1px solid #e2e8f0;
+            border-radius: 999px; padding: 6px 12px;
+            font-size: 0.85rem; color: #475569;
+            outline: none; text-align: center;
+            transition: border 0.2s;
+            max-width: 130px; /* 限制宽度 */
+        }
+        .date-pill:focus { border-color: #6366f1; background: white; }
+        
+        /* 隐藏滚动条但保留功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 select-none">
+    
+    <div class="max-w-md mx-auto h-screen bg-slate-50 flex flex-col relative shadow-2xl overflow-hidden">
+        
+        <!-- Header: 更加沉浸式 -->
+        <header class="bg-indigo-600 text-white pt-10 pb-16 px-6 relative overflow-hidden rounded-b-[40px] shadow-lg z-10">
+            <div class="absolute top-0 right-0 w-40 h-40 bg-white opacity-5 rounded-full blur-3xl -mr-10 -mt-10"></div>
+            <div class="absolute bottom-0 left-0 w-32 h-32 bg-indigo-400 opacity-20 rounded-full blur-2xl -ml-10 -mb-10"></div>
+            
+            <div class="relative flex justify-between items-start">
+                <div>
+                    <div class="text-indigo-100 text-sm mb-1">本月总支出</div>
+                    <div id="total-month" class="font-bold text-4xl tracking-tight">¥0.00</div>
+                </div>
+                <div class="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
+                    <i class="fa-solid fa-wallet"></i>
+                </div>
+            </div>
+            
+            <!-- 两个统计小卡片 -->
+            <div class="absolute -bottom-8 left-6 right-6 flex gap-4">
+                <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] text-slate-400">刚性支出</div>
+                        <div class="font-bold text-emerald-500 text-lg" id="rigid-count">0</div>
+                    </div>
+                    <div class="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500 text-xs">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                </div>
+                <div class="flex-1 bg-white p-3 rounded-2xl shadow-md flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] text-slate-400">非刚性支出</div>
+                        <div class="font-bold text-amber-500 text-lg" id="non-rigid-count">0</div>
+                    </div>
+                    <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-xs">
+                        <i class="fa-solid fa-coffee"></i>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <div class="flex-1 overflow-auto pt-12 pb-4 px-4 no-scrollbar" id="content-area">
+            
+            <!-- 1. 首页：记账 (默认显示) -->
+            <div id="page-home" class="space-y-5 pb-20">
+                <!-- 记账主卡片 -->
+                <div class="bg-white rounded-[32px] p-5 shadow-sm card-glow border border-slate-100/50">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-slate-800 font-bold text-lg">记一笔</h2>
+                        <!-- 日期选择器优化：右上角小胶囊 -->
+                        <input id="date" type="date" class="date-pill">
+                    </div>
+
+                    <!-- 金额输入：大字体居中 -->
+                    <div class="relative mb-6">
+                        <div class="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 text-2xl font-light">¥</div>
+                        <input id="amount" type="number" step="0.01" placeholder="0.00" class="w-full text-center text-4xl font-bold py-2 bg-transparent border-b-2 border-slate-100 focus:border-indigo-500 focus:outline-none text-slate-800 placeholder-slate-200 transition-colors">
+                    </div>
+
+                    <!-- 分类网格：美化版 -->
+                    <div id="category-grid" class="grid grid-cols-5 gap-y-4 gap-x-2 mb-6"></div>
+
+                    <!-- 底部操作栏 -->
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 bg-slate-50 px-3 py-2.5 rounded-xl cursor-pointer border border-transparent hover:border-slate-200 transition-colors">
+                            <input id="isRigid" type="checkbox" class="w-4 h-4 accent-indigo-500 rounded">
+                            <span class="text-xs font-medium text-slate-600">刚性</span>
+                        </label>
+                        <input id="desc" type="text" placeholder="备注..." class="flex-1 px-4 py-2.5 bg-slate-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                        <button onclick="addExpense()" class="bg-indigo-600 hover:bg-indigo-700 text-white w-12 h-10 rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center transition-transform active:scale-90">
+                            <i class="fa-solid fa-check"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="px-2">
+                    <h3 class="font-bold text-slate-800 mb-3 text-sm">最近记录</h3>
+                    <div id="recent-list" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- 2. 记录页 -->
+            <div id="page-records" class="hidden space-y-4 pb-20">
+                <!-- 快捷筛选 -->
+                <div id="quick-filters" class="flex gap-2 overflow-x-auto no-scrollbar pb-1"></div>
+                
+                <!-- 自定义日期筛选：并排布局优化 -->
+                <div id="custom-date-panel" class="hidden bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">开始</label>
+                            <input id="custom-start" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">结束</label>
+                            <input id="custom-end" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                    </div>
+                    <button onclick="applyCustomFilter()" class="w-full bg-slate-900 text-white py-2.5 rounded-xl text-sm font-medium">应用筛选</button>
+                </div>
+
+                <div class="flex justify-between items-center px-1">
+                    <h3 class="font-bold text-lg">明细列表</h3>
+                    <select id="year-filter" onchange="renderRecords()" class="bg-white border-none text-sm text-slate-500 font-medium focus:outline-none"></select>
+                </div>
+                
+                <div id="records-list" class="space-y-3"></div>
+            </div>
+
+            <!-- 3. 分析页 -->
+            <div id="page-analysis" class="hidden space-y-5 pb-20">
+                <!-- 分析日期筛选：并排布局优化 -->
+                <div class="bg-white rounded-3xl p-5 shadow-sm">
+                    <h3 class="font-bold text-slate-800 mb-4 text-sm">分析区间</h3>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">从</label>
+                            <input id="start-date" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-400 block mb-1 ml-1">至</label>
+                            <input id="end-date" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        </div>
+                    </div>
+                    <button onclick="runAnalysis()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium shadow-md shadow-indigo-200">生成报表</button>
+                </div>
+
+                <div id="analysis-result" class="hidden space-y-5">
+                    <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 text-center">
+                        <div class="text-xs text-slate-400 mb-1">区间总支出</div>
+                        <div id="total-expense" class="text-4xl font-bold text-indigo-600 tracking-tight">¥0.00</div>
+                    </div>
+                    
+                    <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                        <h4 class="font-bold text-sm mb-4">支出构成</h4>
+                        <div class="h-56 flex items-center justify-center">
+                            <canvas id="category-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                            <h4 class="font-bold text-xs mb-2">刚性占比</h4>
+                            <canvas id="rigid-chart" height="150"></canvas>
+                        </div>
+                        <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                           <div class="text-xs text-slate-400">主要消费</div>
+                           <div class="font-bold text-indigo-600 mt-1" id="top-category">-</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                        <h4 class="font-bold text-sm mb-4">每月趋势</h4>
+                        <canvas id="monthly-chart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. 工具页 -->
+            <div id="page-tools" class="hidden space-y-4 pb-20">
+                <div class="bg-white rounded-3xl p-6 shadow-sm mb-6">
+                    <h2 class="font-bold text-lg mb-1">数据管理</h2>
+                    <p class="text-xs text-slate-400">数据仅存储在您的设备本地</p>
+                </div>
+                
+                <button onclick="exportData()" class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center"><i class="fa-solid fa-download"></i></div>
+                        <span class="font-medium text-slate-700">导出数据 (JSON)</span>
+                    </div>
+                    <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+                </button>
+                
+                <label class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 cursor-pointer transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-green-50 text-green-500 flex items-center justify-center"><i class="fa-solid fa-upload"></i></div>
+                        <span class="font-medium text-slate-700">导入数据</span>
+                    </div>
+                    <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
+                    <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+                </label>
+                
+                <button onclick="if(confirm('此操作不可恢复，确定清空？')){localStorage.clear();location.reload()}" class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 transition-colors group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center group-hover:bg-red-500 group-hover:text-white transition-colors"><i class="fa-solid fa-trash"></i></div>
+                        <span class="font-medium text-red-500">清空所有记录</span>
+                    </div>
+                </button>
+            </div>
+
+        </div>
+
+        <!-- 底部导航：更轻量 -->
+        <nav class="bg-white/90 backdrop-blur-md border-t border-slate-100 flex text-slate-400 absolute bottom-0 w-full z-20 pb-safe">
+            <button onclick="switchPage(0)" class="nav-item flex-1 py-3 flex flex-col items-center nav-active" id="nav-0">
+                <i class="fa-solid fa-house text-xl mb-1"></i><span class="text-[10px] font-medium">记账</span>
+            </button>
+            <button onclick="switchPage(1)" class="nav-item flex-1 py-3 flex flex-col items-center" id="nav-1">
+                <i class="fa-solid fa-rectangle-list text-xl mb-1"></i><span class="text-[10px] font-medium">明细</span>
+            </button>
+            <button onclick="switchPage(2)" class="nav-item flex-1 py-3 flex flex-col items-center" id="nav-2">
+                <i class="fa-solid fa-chart-pie text-xl mb-1"></i><span class="text-[10px] font-medium">统计</span>
+            </button>
+            <button onclick="switchPage(3)" class="nav-item flex-1 py-3 flex flex-col items-center" id="nav-3">
+                <i class="fa-solid fa-gear text-xl mb-1"></i><span class="text-[10px] font-medium">设置</span>
+            </button>
+        </nav>
+    </div>
+
+    <script>
+        let expenses = [];
+        let selectedCategory = '';
+        let categoryChart, rigidChart, monthlyChart;
+        let currentFilter = 'thisMonth';
+        let customStart = '', customEnd = '';
+
+        // 优化后的类别列表
+        const categories = [
+            {name:'餐饮',emoji:'🍔'},{name:'出行',emoji:'🚕'},{name:'购物',emoji:'🛍️'},
+            {name:'日用',emoji:'🧻'},{name:'娱乐',emoji:'🎮'},{name:'医疗',emoji:'💊'},
+            {name:'居住',emoji:'🏠'},{name:'通讯',emoji:'📱'},{name:'服饰',emoji:'👕'},{name:'其他',emoji:'🧩'}
+        ];
+
+        function loadData() {
+            const saved = localStorage.getItem('familyExpenses');
+            expenses = saved ? JSON.parse(saved) : [];
+        }
+        function saveData() {
+            localStorage.setItem('familyExpenses', JSON.stringify(expenses));
+        }
+
+        // 渲染优化的图标网格
+        function renderCategoryGrid() {
+            const grid = document.getElementById('category-grid');
+            grid.innerHTML = '';
+            categories.forEach(cat => {
+                const btn = document.createElement('div');
+                btn.className = `cat-btn cursor-pointer`;
+                btn.innerHTML = `<div class="cat-icon-circle">${cat.emoji}</div><span>${cat.name}</span>`;
+                btn.onclick = () => {
+                    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectedCategory = cat.name;
+                };
+                grid.appendChild(btn);
+            });
+        }
+
+        function renderQuickFilters() {
+            const container = document.getElementById('quick-filters');
+            const filters = [
+                {text:'本月',val:'thisMonth'},{text:'上月',val:'lastMonth'},{text:'本年',val:'thisYear'},
+                {text:'自定义',val:'custom'}
+            ];
+            container.innerHTML = filters.map(f => `
+                <button onclick="setQuickFilter('${f.val}')" class="whitespace-nowrap py-1.5 px-4 text-xs font-medium rounded-full border transition-colors ${currentFilter===f.val?'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200':'bg-white border-slate-200 text-slate-500'}">${f.text}</button>
+            `).join('');
+        }
+
+        function setQuickFilter(mode) {
+            currentFilter = mode;
+            renderQuickFilters();
+            if (mode === 'custom') {
+                document.getElementById('custom-date-panel').classList.remove('hidden');
+            } else {
+                document.getElementById('custom-date-panel').classList.add('hidden');
+                renderRecords();
+            }
+        }
+
+        function applyCustomFilter() {
+            customStart = document.getElementById('custom-start').value;
+            customEnd = document.getElementById('custom-end').value;
+            renderRecords();
+        }
+
+        function switchPage(n) {
+            document.querySelectorAll('#page-home, #page-records, #page-analysis, #page-tools').forEach(p => p.classList.add('hidden'));
+            document.getElementById(['page-home','page-records','page-analysis','page-tools'][n]).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach((b,i) => {
+                if(i===n) {
+                    b.classList.add('nav-active', 'text-indigo-600');
+                    b.classList.remove('text-slate-400');
+                } else {
+                    b.classList.remove('nav-active', 'text-indigo-600');
+                    b.classList.add('text-slate-400');
+                }
+            });
+            if(n===1) { renderQuickFilters(); renderRecords(); }
+            if(n===2) document.getElementById('analysis-result').classList.add('hidden');
+        }
+
+        function addExpense() {
+            const amountInput = document.getElementById('amount');
+            const amount = parseFloat(amountInput.value);
+            const date = document.getElementById('date').value;
+            const isRigid = document.getElementById('isRigid').checked;
+            const descInput = document.getElementById('desc');
+            const desc = descInput.value.trim();
+
+            if(!amount || !date || !selectedCategory) { 
+                // 简单的震动反馈模拟
+                amountInput.classList.add('bg-red-50');
+                setTimeout(()=>amountInput.classList.remove('bg-red-50'), 200);
+                return; 
+            }
+
+            expenses.unshift({id: Date.now(), date, amount, category: selectedCategory, isRigid, desc: desc || ''});
+            saveData(); 
+            renderHome(); 
+            
+            // 简单的动画反馈
+            const btn = document.querySelector('button[onclick="addExpense()"]');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check-double"></i>';
+            setTimeout(() => { btn.innerHTML = originalHTML; }, 1000);
+
+            amountInput.value = ''; 
+            descInput.value = '';
+            // 保持类别选中状态，方便连续记账，或者也可以重置
+            // selectedCategory = ''; document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+        }
+
+        function renderHome() {
+            const now = new Date();
+            const thisMonth = expenses.filter(e => {
+                const d = new Date(e.date);
+                return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+            });
+            document.getElementById('total-month').textContent = '¥' + thisMonth.reduce((s,e)=>s+e.amount,0).toFixed(2);
+            document.getElementById('rigid-count').textContent = thisMonth.filter(e=>e.isRigid).length;
+            document.getElementById('non-rigid-count').textContent = thisMonth.length - thisMonth.filter(e=>e.isRigid).length;
+
+            const recent = expenses.slice(0,5);
+            let html = '';
+            recent.forEach(e => {
+                const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                html += `
+                <div class="bg-white rounded-2xl p-4 flex justify-between items-center shadow-sm border border-slate-50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-lg">${catObj.emoji}</div>
+                        <div>
+                            <div class="font-medium text-slate-800 text-sm flex items-center gap-2">
+                                ${e.category} 
+                                ${e.desc ? `<span class="text-xs text-slate-400 font-normal truncate max-w-[100px]">${e.desc}</span>` : ''}
+                            </div>
+                            <div class="text-xs text-slate-400 mt-0.5">${e.date.substring(5)}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-bold text-slate-800">¥${e.amount}</div>
+                        <div class="text-[10px] ${e.isRigid ? 'text-emerald-500' : 'text-amber-500'}">${e.isRigid ? '刚性' : '非刚性'}</div>
+                    </div>
+                    <button onclick="deleteExpense(${e.id});event.stopImmediatePropagation()" class="ml-2 text-slate-300 hover:text-red-400 px-2"><i class="fa-solid fa-xmark"></i></button>
+                </div>`;
+            });
+            document.getElementById('recent-list').innerHTML = html || '<div class="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">暂无近期记录</div>';
+        }
+
+        function deleteExpense(id) {
+            if(confirm('确定删除这条记录吗？')) {
+                expenses = expenses.filter(e => e.id !== id);
+                saveData(); renderHome(); renderRecords();
+            }
+        }
+
+        function renderRecords() {
+            let filtered = expenses;
+            const now = new Date();
+            const y = now.getFullYear(), m = now.getMonth();
+
+            if (currentFilter === 'thisMonth') filtered = expenses.filter(e => { const d = new Date(e.date); return d.getFullYear() === y && d.getMonth() === m; });
+            else if (currentFilter === 'lastMonth') filtered = expenses.filter(e => { const d = new Date(e.date); return d.getFullYear() === y && d.getMonth() === m-1 || (m===0 && d.getMonth()===11 && d.getFullYear()===y-1); });
+            else if (currentFilter === 'thisYear') filtered = expenses.filter(e => new Date(e.date).getFullYear() === y);
+            else if (currentFilter === 'custom' && customStart && customEnd) {
+                filtered = expenses.filter(e => e.date >= customStart && e.date <= customEnd);
+            }
+
+            const yearSelect = document.getElementById('year-filter');
+            const years = [...new Set(expenses.map(e => new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
+            if(yearSelect.options.length <= 1) { // 简单防止重复渲染
+                 yearSelect.innerHTML = `<option value="">全部年份</option>` + years.map(y => `<option value="${y}">${y}年</option>`).join('');
+            }
+            const selectedYear = yearSelect.value;
+            if (selectedYear) filtered = filtered.filter(e => new Date(e.date).getFullYear() == selectedYear);
+
+            let html = '';
+            // 按日期分组渲染
+            const grouped = {};
+            filtered.forEach(e => {
+                if(!grouped[e.date]) grouped[e.date] = [];
+                grouped[e.date].push(e);
+            });
+            const sortedDates = Object.keys(grouped).sort((a,b) => b.localeCompare(a));
+
+            sortedDates.forEach(date => {
+                const dayTotal = grouped[date].reduce((s,e)=>s+e.amount,0);
+                html += `<div class="mb-4">
+                    <div class="flex justify-between items-center px-2 mb-2">
+                        <span class="text-xs text-slate-400 font-medium">${date}</span>
+                        <span class="text-xs text-slate-400">支 ¥${dayTotal.toFixed(2)}</span>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">`;
+                
+                grouped[date].forEach((e, idx) => {
+                    const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                    html += `
+                    <div class="p-4 flex justify-between items-center ${idx!==grouped[date].length-1 ? 'border-b border-slate-50' : ''}">
+                        <div class="flex items-center gap-3">
+                            <div class="text-xl w-8 text-center">${catObj.emoji}</div>
+                            <div>
+                                <div class="text-sm font-medium text-slate-700">${e.category} ${e.isRigid?'<i class="fa-solid fa-circle text-[6px] text-emerald-400 ml-1 align-middle"></i>':''}</div>
+                                ${e.desc ? `<div class="text-xs text-slate-400">${e.desc}</div>` : ''}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="font-bold text-slate-800">¥${e.amount.toFixed(2)}</div>
+                            <button onclick="deleteExpense(${e.id})" class="text-slate-300 text-xs"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            });
+
+            document.getElementById('records-list').innerHTML = html || '<div class="flex flex-col items-center justify-center py-12 text-slate-300"><i class="fa-solid fa-clipboard-list text-4xl mb-2 opacity-50"></i><p class="text-xs">该筛选条件下没有记录</p></div>';
+        }
+
+        function runAnalysis() {
+            const start = document.getElementById('start-date').value;
+            const end = document.getElementById('end-date').value;
+            let filtered = expenses;
+            if(start) filtered = filtered.filter(e => e.date >= start);
+            if(end) filtered = filtered.filter(e => e.date <= end);
+            
+            const total = filtered.reduce((s,e)=>s+e.amount,0);
+            document.getElementById('total-expense').textContent = '¥' + total.toFixed(2);
+
+            // 1. 类别图表
+            const catMap = {};
+            filtered.forEach(e => catMap[e.category] = (catMap[e.category]||0) + e.amount);
+            // 找出消费最高的类别
+            let topCat = '-', maxVal = 0;
+            for(let c in catMap) { if(catMap[c]>maxVal){maxVal=catMap[c]; topCat=c;} }
+            document.getElementById('top-category').textContent = topCat;
+
+            if(categoryChart) categoryChart.destroy();
+            categoryChart = new Chart(document.getElementById('category-chart'), {
+                type: 'doughnut',
+                data: { 
+                    labels: Object.keys(catMap), 
+                    datasets: [{ 
+                        data: Object.values(catMap), 
+                        backgroundColor: ['#6366f1','#818cf8','#a5b4fc','#c7d2fe','#e0e7ff','#10b981','#34d399','#f59e0b','#fbbf24','#f87171'],
+                        borderWidth: 0
+                    }] 
+                },
+                options: { 
+                    cutout: '70%',
+                    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } } } 
+                }
+            });
+
+            // 2. 刚性占比
+            const rigidSum = filtered.filter(e=>e.isRigid).reduce((s,e)=>s+e.amount,0);
+            const nonRigidSum = total - rigidSum;
+            if(rigidChart) rigidChart.destroy();
+            rigidChart = new Chart(document.getElementById('rigid-chart'), {
+                type: 'pie',
+                data: { labels: ['刚性','非刚性'], datasets: [{ data: [rigidSum, nonRigidSum], backgroundColor: ['#10b981','#f59e0b'], borderWidth: 0 }] },
+                options: { plugins: { legend: { display: false } } }
+            });
+
+            // 3. 月度趋势
+            const monthMap = {};
+            filtered.forEach(e => { const m = e.date.substring(5,7)+'月'; monthMap[m] = (monthMap[m]||0) + e.amount; });
+            // 排序月份
+            const sortedMonths = Object.keys(monthMap).sort();
+            
+            if(monthlyChart) monthlyChart.destroy();
+            monthlyChart = new Chart(document.getElementById('monthly-chart'), {
+                type: 'bar',
+                data: { 
+                    labels: sortedMonths, 
+                    datasets: [{ 
+                        label: '支出', 
+                        data: sortedMonths.map(m=>monthMap[m]), 
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4,
+                        barThickness: 12
+                    }] 
+                },
+                options: { 
+                    scales: { 
+                        y: { display: false, beginAtZero: true },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            document.getElementById('analysis-result').classList.remove('hidden');
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify(expenses, null, 2);
+            const blob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `小账本备份_${new Date().toISOString().slice(0,10)}.json`; a.click();
+        }
+
+        function importData(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    const imported = JSON.parse(ev.target.result);
+                    if(Array.isArray(imported)) {
+                        if(confirm(`检测到 ${imported.length} 条记录，是否覆盖当前数据？(取消则为合并)`)) expenses = imported; 
+                        else expenses = expenses.concat(imported);
+                        saveData(); alert('导入成功！'); location.reload();
+                    }
+                } catch(err) { alert('文件格式不正确'); }
+            };
+            reader.readAsText(file);
+        }
+
+        window.onload = function() {
+            loadData();
+            // 初始化日期为今天
+            const today = new Date().toISOString().slice(0,10);
+            document.getElementById('date').value = today;
+            document.getElementById('custom-start').value = new Date(new Date().setDate(new Date().getDate()-30)).toISOString().slice(0,10);
+            document.getElementById('custom-end').value = today;
+            document.getElementById('start-date').value = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+            document.getElementById('end-date').value = today;
+
+            renderCategoryGrid();
+            renderQuickFilters();
+            switchPage(0);
+            renderHome();
+        };
+    </script>
+</body>
+</html>
