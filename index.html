@@ -53,14 +53,14 @@
         }
         .date-pill:focus { border-color: #6366f1; background: white; }
         
-        /* 列表式日期选择器优化 */
+        /* 列表式日期选择器优化 (解决重叠问题的关键) */
         .date-list-input {
             text-align: right;
             background: transparent;
             font-family: inherit;
             color: #334155;
             font-weight: 500;
-            width: 160px;
+            width: 160px; /* 限制宽度，强制右对齐 */
         }
         
         /* 隐藏滚动条 */
@@ -69,24 +69,10 @@
 
         /* 解决 Safari 底部遮挡问题 */
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-
-        /* 特效画布样式 */
-        #dust-canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none; /* 关键：让点击事件穿透画布 */
-            z-index: 9999;
-        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 select-none">
     
-    <!-- 特效画布 -->
-    <canvas id="dust-canvas"></canvas>
-
     <div class="w-full max-w-md mx-auto min-h-screen bg-slate-50 flex flex-col relative shadow-2xl overflow-hidden">
         
         <!-- Header 区域 -->
@@ -169,6 +155,7 @@
             <div id="page-records" class="hidden space-y-4 pb-24">
                 <div id="quick-filters" class="flex gap-2 overflow-x-auto no-scrollbar pb-1"></div>
                 
+                <!-- 记录页：自定义筛选日期 (使用列表样式修复重叠) -->
                 <div id="custom-date-panel" class="hidden bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h3 class="text-xs text-slate-400 font-bold mb-3 uppercase tracking-wider">选择时间段</h3>
                     <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-4 overflow-hidden">
@@ -197,6 +184,7 @@
                 <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h3 class="font-bold text-slate-800 mb-4 text-sm flex items-center gap-2"><i class="fa-solid fa-calendar-days text-indigo-500"></i> 分析区间</h3>
                     
+                    <!-- 修复点：改为列表式布局，彻底解决并排显示重叠问题 -->
                     <div class="bg-slate-50 rounded-2xl border border-slate-200 mb-5 overflow-hidden">
                         <div class="flex items-center justify-between p-3.5 border-b border-slate-200 active:bg-slate-100 transition-colors">
                             <span class="text-sm text-slate-500 font-medium pl-1">开始日期</span>
@@ -297,7 +285,6 @@
     </div>
 
     <script>
-        // --- 核心记账逻辑 ---
         let expenses = [];
         let selectedCategory = '';
         let categoryChart, rigidChart, monthlyChart;
@@ -604,104 +591,6 @@
             reader.readAsText(file);
         }
 
-        // --- 星尘特效逻辑 ---
-        function initStarDust() {
-            const canvas = document.getElementById('dust-canvas');
-            const ctx = canvas.getContext('2d');
-            let particles = [];
-            
-            // 调整画布尺寸
-            function resize() {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }
-            window.addEventListener('resize', resize);
-            resize();
-
-            // 粒子配色：蓝、紫、金、白
-            const colors = ['#6366f1', '#a855f7', '#f59e0b', '#ffffff', '#cbd5e1'];
-
-            class Particle {
-                constructor(x, y) {
-                    this.x = x;
-                    this.y = y;
-                    this.size = Math.random() * 3 + 1; // 随机大小
-                    this.speedX = Math.random() * 2 - 1; // 水平扩散
-                    this.speedY = Math.random() * 2 - 1.5; // 初始略微向上
-                    this.gravity = 0.05; // 重力下落
-                    this.color = colors[Math.floor(Math.random() * colors.length)];
-                    this.life = 1.0; // 透明度/生命值
-                    this.decay = Math.random() * 0.02 + 0.01; // 消失速度
-                }
-                update() {
-                    this.speedY += this.gravity;
-                    this.x += this.speedX;
-                    this.y += this.speedY;
-                    this.life -= this.decay;
-                    this.size -= 0.05; // 变小
-                }
-                draw() {
-                    ctx.save();
-                    ctx.globalAlpha = this.life;
-                    ctx.fillStyle = this.color;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, Math.max(0, this.size), 0, Math.PI * 2);
-                    ctx.fill();
-                    // 加一点闪光效果
-                    ctx.shadowBlur = 5;
-                    ctx.shadowColor = this.color;
-                    ctx.restore();
-                }
-            }
-
-            function handleInput(x, y) {
-                // 每次触碰产生多个粒子
-                for (let i = 0; i < 6; i++) {
-                    particles.push(new Particle(x, y));
-                }
-            }
-
-            // 触摸事件
-            window.addEventListener('touchstart', (e) => {
-                for (let i = 0; i < e.touches.length; i++) {
-                    handleInput(e.touches[i].clientX, e.touches[i].clientY);
-                }
-            }, {passive: true});
-
-            window.addEventListener('touchmove', (e) => {
-                for (let i = 0; i < e.touches.length; i++) {
-                    handleInput(e.touches[i].clientX, e.touches[i].clientY);
-                }
-            }, {passive: true});
-
-            // 鼠标事件（方便在电脑端测试）
-            let isMouseDown = false;
-            window.addEventListener('mousedown', (e) => {
-                isMouseDown = true;
-                handleInput(e.clientX, e.clientY);
-            });
-            window.addEventListener('mouseup', () => isMouseDown = false);
-            window.addEventListener('mousemove', (e) => {
-                if(isMouseDown) handleInput(e.clientX, e.clientY);
-            });
-
-            // 动画循环
-            function animate() {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                for (let i = 0; i < particles.length; i++) {
-                    particles[i].update();
-                    particles[i].draw();
-                    // 移除消失的粒子
-                    if (particles[i].life <= 0 || particles[i].size <= 0) {
-                        particles.splice(i, 1);
-                        i--;
-                    }
-                }
-                requestAnimationFrame(animate);
-            }
-            animate();
-        }
-
         window.onload = function() {
             loadData();
             const today = new Date().toISOString().slice(0,10);
@@ -715,9 +604,6 @@
             renderQuickFilters();
             switchPage(0);
             renderHome();
-            
-            // 启动特效
-            initStarDust();
         };
     </script>
 </body>
