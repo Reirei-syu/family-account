@@ -275,6 +275,12 @@
                 <div class="bg-white rounded-3xl p-6 shadow-sm mb-6">
                     <h2 class="font-bold text-lg mb-1">数据管理</h2>
                     <p class="text-xs text-slate-400">数据仅存储在您的设备本地</p>
+                    <div id="storage-info" class="mt-3 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                        存储状态：检测中...
+                    </div>
+                    <div id="backup-info" class="mt-2 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                        备份状态：暂无记录
+                    </div>
                 </div>
                 <button onclick="printData()" class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 transition-colors group hover:border-indigo-300">
                     <div class="flex items-center gap-3">
@@ -339,6 +345,7 @@
         let recordsTotalHeight = 0;
         let currentPageIndex = 0;
         let recordsRenderPending = false;
+        let recordsHeightUpdatePending = false;
         const RECORD_ITEM_HEIGHT = 72;
         const RECORD_HEADER_HEIGHT = 28;
         const RECORD_GROUP_MARGIN = 16;
@@ -357,11 +364,14 @@
         const DB_NAME = 'family-account';
         const DB_VERSION = 1;
         const DB_STORE = 'kv';
+        const BACKUP_META_KEY = 'familyExpensesBackupMeta';
         let dbPromise = null;
         let storageWarned = false;
         const MAX_DESC_LEN = 200;
         const MAX_CATEGORY_LEN = 20;
         const MAX_ID_LEN = 64;
+        const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+        const MAX_IMPORT_RECORDS = 200000;
 
         function supportsIndexedDB() {
             return typeof indexedDB !== 'undefined';
@@ -446,9 +456,73 @@
             }
         }
 
+        async function updateStorageInfo() {
+            const el = document.getElementById('storage-info');
+            if (!el) return;
+            let persistText = '持久化：未知';
+            try {
+                if (navigator.storage && navigator.storage.persisted) {
+                    const persisted = await navigator.storage.persisted();
+                    persistText = persisted ? '持久化：已启用' : '持久化：未启用';
+                }
+            } catch (e) {
+                persistText = '持久化：未知';
+            }
+
+            let usageText = '';
+            try {
+                if (navigator.storage && navigator.storage.estimate) {
+                    const est = await navigator.storage.estimate();
+                    if (est && est.quota) {
+                        const usedMb = (est.usage / 1024 / 1024).toFixed(1);
+                        const quotaMb = (est.quota / 1024 / 1024).toFixed(1);
+                        usageText = `用量：${usedMb}MB / ${quotaMb}MB`;
+                    }
+                }
+            } catch (e) {
+                usageText = '';
+            }
+
+            el.textContent = usageText ? `存储状态：${persistText}，${usageText}` : `存储状态：${persistText}`;
+        }
+
+        async function updateBackupInfo() {
+            const el = document.getElementById('backup-info');
+            if (!el) return;
+            try {
+                const meta = supportsIndexedDB() ? await idbGet(BACKUP_META_KEY) : null;
+                const last = meta && meta.lastBackupAt ? meta.lastBackupAt : localStorage.getItem(BACKUP_META_KEY);
+                if (last) {
+                    const d = new Date(last);
+                    if (!Number.isNaN(d.getTime())) {
+                        el.textContent = `备份状态：上次备份 ${d.toLocaleString()}`;
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn('Backup meta read failed:', e);
+            }
+            el.textContent = '备份状态：暂无记录';
+        }
+
+        async function saveBackupMeta() {
+            const meta = { lastBackupAt: new Date().toISOString() };
+            if (supportsIndexedDB()) {
+                const ok = await idbSet(BACKUP_META_KEY, meta);
+                if (!ok) {
+                    try { localStorage.setItem(BACKUP_META_KEY, meta.lastBackupAt); } catch (e) {}
+                }
+            } else {
+                try { localStorage.setItem(BACKUP_META_KEY, meta.lastBackupAt); } catch (e) {}
+            }
+            await updateBackupInfo();
+        }
+
         async function initStorage() {
             await requestPersistentStorage();
             await checkStorageUsage();
+            await updateStorageInfo();
+            await updateBackupInfo();
         }
 
         function normalizeText(value, maxLen) {
@@ -485,6 +559,32 @@
             const id = normalizeId(item.id) || generateId();
             if (!amount || !date || !category) return null;
             return { id, date, amount, category, isRigid, desc };
+        }
+
+        function prepareImportData(raw) {
+            const result = {
+                total: Array.isArray(raw) ? raw.length : 0,
+                valid: [],
+                invalidCount: 0,
+                duplicateIdCount: 0
+            };
+            if (!Array.isArray(raw)) return result;
+
+            const seen = new Set();
+            for (let i = 0; i < raw.length; i += 1) {
+                const cleaned = sanitizeExpense(raw[i]);
+                if (!cleaned) {
+                    result.invalidCount += 1;
+                    continue;
+                }
+                if (seen.has(cleaned.id)) {
+                    cleaned.id = generateId();
+                    result.duplicateIdCount += 1;
+                }
+                seen.add(cleaned.id);
+                result.valid.push(cleaned);
+            }
+            return result;
         }
 
         // 安全解析 YYYY-MM-DD 为本地日期对象，避免 UTC 偏移导致的日期偏差
@@ -952,6 +1052,13 @@
             if (changed) {
                 recordsGroupHeights = recordsGroups.map(g => recordsGroupHeightsByDate.get(g.date) || g.height);
                 recordsTotalHeight = recordsGroupHeights.reduce((s, h) => s + h, 0);
+                if (!recordsHeightUpdatePending) {
+                    recordsHeightUpdatePending = true;
+                    requestAnimationFrame(() => {
+                        recordsHeightUpdatePending = false;
+                        renderVirtualRecords(true);
+                    });
+                }
             }
         }
 
@@ -1030,28 +1137,39 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = `小账本备份_${new Date().toISOString().slice(0,10)}.json`; a.click();
             setTimeout(() => URL.revokeObjectURL(url), 0);
+            saveBackupMeta();
         }
 
         function importData(e) {
             const file = e.target.files[0];
             if(!file) return;
+            if (file.size > MAX_IMPORT_BYTES) {
+                alert('导入失败：文件过大，请分批导入或先压缩记录数量。');
+                return;
+            }
             const reader = new FileReader();
             reader.onload = async function(ev) {
                 try {
                     const imported = JSON.parse(ev.target.result);
                     if(Array.isArray(imported)) {
-                        const sanitized = imported.map(sanitizeExpense).filter(Boolean);
-                        if (sanitized.length === 0) {
+                        if (imported.length > MAX_IMPORT_RECORDS) {
+                            const go = confirm(`检测到 ${imported.length} 条记录，数量过大可能导致卡顿。是否继续导入？`);
+                            if (!go) return;
+                        }
+                        const prepared = prepareImportData(imported);
+                        if (prepared.valid.length === 0) {
                             alert('文件中没有可用的记录');
                             return;
                         }
                         const prev = expenses;
-                        if(confirm(`检测到 ${sanitized.length} 条记录，是否覆盖？点击“确定”覆盖现有数据，点击“取消”合并数据。`)) {
-                             expenses = sanitized; 
+                        const summary = `检测到 ${prepared.total} 条记录：有效 ${prepared.valid.length}，无效 ${prepared.invalidCount}，重复ID ${prepared.duplicateIdCount}。是否继续导入？`;
+                        if (!confirm(summary)) return;
+                        if(confirm(`导入方式：点击“确定”覆盖现有数据，点击“取消”合并数据。`)) {
+                             expenses = prepared.valid; 
                         } else {
                             // 智能合并：处理ID冲突
                             const existingIds = new Set(expenses.map(e => e.id));
-                            const cleanImported = sanitized.map(item => {
+                            const cleanImported = prepared.valid.map(item => {
                                 if (existingIds.has(item.id)) {
                                     // ID 冲突，生成新 ID
                                     return { ...item, id: generateId() };
