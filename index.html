@@ -372,6 +372,7 @@
         const MAX_ID_LEN = 64;
         const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
         const MAX_IMPORT_RECORDS = 200000;
+        const BACKUP_REMINDER_DAYS = 30;
 
         function supportsIndexedDB() {
             return typeof indexedDB !== 'undefined';
@@ -496,13 +497,17 @@
                     const d = new Date(last);
                     if (!Number.isNaN(d.getTime())) {
                         el.textContent = `备份状态：上次备份 ${d.toLocaleString()}`;
+                        const diffDays = Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
+                        if (diffDays >= BACKUP_REMINDER_DAYS) {
+                            el.textContent += `，已超过 ${diffDays} 天`;
+                        }
                         return;
                     }
                 }
             } catch (e) {
                 console.warn('Backup meta read failed:', e);
             }
-            el.textContent = '备份状态：暂无记录';
+            el.textContent = '备份状态：暂无记录（建议尽快备份）';
         }
 
         async function saveBackupMeta() {
@@ -523,6 +528,23 @@
             await checkStorageUsage();
             await updateStorageInfo();
             await updateBackupInfo();
+            await maybeRemindBackup();
+        }
+
+        async function maybeRemindBackup() {
+            try {
+                const meta = supportsIndexedDB() ? await idbGet(BACKUP_META_KEY) : null;
+                const last = meta && meta.lastBackupAt ? meta.lastBackupAt : localStorage.getItem(BACKUP_META_KEY);
+                if (!last) return;
+                const d = new Date(last);
+                if (Number.isNaN(d.getTime())) return;
+                const diffDays = Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
+                if (diffDays >= BACKUP_REMINDER_DAYS) {
+                    alert(`建议备份：距离上次备份已超过 ${diffDays} 天。`);
+                }
+            } catch (e) {
+                console.warn('Backup reminder check failed:', e);
+            }
         }
 
         function normalizeText(value, maxLen) {
