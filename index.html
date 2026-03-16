@@ -250,6 +250,23 @@
                         <h4 class="font-bold text-sm mb-4">每月趋势</h4>
                         <canvas id="monthly-chart" height="200"></canvas>
                     </div>
+
+                    <!-- 财务健康度 (新增) -->
+                    <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                        <h4 class="font-bold text-sm mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-user-doctor text-indigo-500"></i> 财务健康度
+                        </h4>
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs text-slate-500">刚性支出占比</span>
+                                <span id="rigid-ratio-val" class="font-bold text-slate-800 text-lg">0.0%</span>
+                            </div>
+                            <div class="w-full bg-slate-200 rounded-full h-2 mb-3">
+                                <div id="rigid-ratio-bar" class="bg-indigo-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                            <p id="health-check-text" class="text-xs text-slate-600 leading-relaxed font-medium"></p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -325,13 +342,46 @@
             {name:'服装',emoji:'👕'}, {name:'其他',emoji:'🧩'}
         ];
 
+        // --- 辅助函数 ---
+        // 安全解析 YYYY-MM-DD 为本地日期对象，避免 UTC 偏移导致的日期偏差
+        function parseDate(dateStr) {
+            if (!dateStr) return new Date();
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+            return new Date(dateStr); // 回退到默认解析
+        }
+
+        // 生成唯一ID (时间戳 + 随机数)
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
         function loadData() {
             try {
                 const saved = localStorage.getItem('familyExpenses');
                 expenses = saved ? JSON.parse(saved) : [];
             } catch(e) { expenses = []; }
         }
-        function saveData() { localStorage.setItem('familyExpenses', JSON.stringify(expenses)); }
+
+        function saveData() {
+            try {
+                const data = JSON.stringify(expenses);
+                localStorage.setItem('familyExpenses', data);
+                
+                // 检查存储空间 (简单估算)
+                if (data.length > 4.5 * 1024 * 1024) {
+                    alert('注意：您的数据量已接近存储上限 (5MB)，建议尽快备份并清理旧数据。');
+                }
+            } catch (e) {
+                if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                    alert('保存失败：存储空间已满！请先导出备份，然后清理旧数据。');
+                } else {
+                    console.error('Save failed:', e);
+                }
+            }
+        }
 
         // --- 渲染函数 ---
         
@@ -422,7 +472,8 @@
                 return; 
             }
 
-            expenses.unshift({id: Date.now(), date, amount, category: selectedCategory, isRigid, desc: desc || ''});
+            // 使用 generateId() 替代 Date.now()
+            expenses.unshift({id: generateId(), date, amount, category: selectedCategory, isRigid, desc: desc || ''});
             saveData(); renderHome(); 
             
             const btn = document.querySelector('button[onclick="addExpense()"]');
@@ -435,10 +486,12 @@
 
         // 打开编辑弹窗
         function openEditModal(id) {
-            const expense = expenses.find(e => e.id === id);
+            // ID 现在可能是字符串，需要确保类型匹配（如果 id 是数字传递过来的话，虽然 generateId 返回字符串）
+            // 为了兼容旧数据(数字ID)和新数据(字符串ID)，我们直接全等比较即可，因为传参时类型已确定
+            const expense = expenses.find(e => e.id == id); // 使用 == 宽松匹配以兼容
             if(!expense) return;
 
-            currentEditId = id;
+            currentEditId = expense.id; // 确保保存时使用原始ID
             document.getElementById('edit-amount').value = expense.amount;
             document.getElementById('edit-date').value = expense.date;
             document.getElementById('edit-isRigid').checked = expense.isRigid;
@@ -486,7 +539,7 @@
         function renderHome() {
             const now = new Date();
             const thisMonth = expenses.filter(e => {
-                const d = new Date(e.date);
+                const d = parseDate(e.date); // 使用 parseDate
                 return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
             });
             document.getElementById('total-month').textContent = '¥' + thisMonth.reduce((s,e)=>s+e.amount,0).toFixed(2);
@@ -497,6 +550,8 @@
             let html = '';
             recent.forEach(e => {
                 const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                // ID 需要转义引号，虽然这里一般是安全的，但为了稳健
+                const idParam = typeof e.id === 'string' ? `'${e.id}'` : e.id;
                 html += `
                 <div class="bg-white rounded-2xl p-4 flex justify-between items-center shadow-sm border border-slate-50">
                     <div class="flex items-center gap-3">
@@ -514,8 +569,8 @@
                             <div class="font-bold text-slate-800">¥${e.amount}</div>
                             <div class="text-[10px] ${e.isRigid ? 'text-emerald-500' : 'text-amber-500'}">${e.isRigid ? '刚性' : '非刚性'}</div>
                         </div>
-                        <button onclick="openEditModal(${e.id})" class="w-8 h-8 flex items-center justify-center text-indigo-400 bg-indigo-50 rounded-lg mr-2"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
-                        <button onclick="deleteExpense(${e.id});event.stopImmediatePropagation()" class="w-8 h-8 flex items-center justify-center text-red-400 bg-red-50 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
+                        <button onclick="openEditModal(${idParam})" class="w-8 h-8 flex items-center justify-center text-indigo-400 bg-indigo-50 rounded-lg mr-2"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+                        <button onclick="deleteExpense(${idParam});event.stopImmediatePropagation()" class="w-8 h-8 flex items-center justify-center text-red-400 bg-red-50 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
                     </div>
                 </div>`;
             });
@@ -524,7 +579,8 @@
 
         function deleteExpense(id) {
             if(confirm('确定删除这条记录吗？')) {
-                expenses = expenses.filter(e => e.id !== id);
+                // 使用 loose equality (==) 兼容旧数据（数字ID）和新数据（字符串ID）
+                expenses = expenses.filter(e => e.id != id);
                 saveData(); renderHome(); renderRecords();
             }
         }
@@ -534,16 +590,16 @@
             const now = new Date();
             const y = now.getFullYear(), m = now.getMonth();
 
-            if (currentFilter === 'thisMonth') filtered = expenses.filter(e => { const d = new Date(e.date); return d.getFullYear() === y && d.getMonth() === m; });
-            else if (currentFilter === 'lastMonth') filtered = expenses.filter(e => { const d = new Date(e.date); return d.getFullYear() === y && d.getMonth() === m-1 || (m===0 && d.getMonth()===11 && d.getFullYear()===y-1); });
-            else if (currentFilter === 'thisYear') filtered = expenses.filter(e => new Date(e.date).getFullYear() === y);
+            if (currentFilter === 'thisMonth') filtered = expenses.filter(e => { const d = parseDate(e.date); return d.getFullYear() === y && d.getMonth() === m; });
+            else if (currentFilter === 'lastMonth') filtered = expenses.filter(e => { const d = parseDate(e.date); return d.getFullYear() === y && d.getMonth() === m-1 || (m===0 && d.getMonth()===11 && d.getFullYear()===y-1); });
+            else if (currentFilter === 'thisYear') filtered = expenses.filter(e => parseDate(e.date).getFullYear() === y);
             else if (currentFilter === 'custom' && customStart && customEnd) filtered = expenses.filter(e => e.date >= customStart && e.date <= customEnd);
 
             const yearSelect = document.getElementById('year-filter');
-            const years = [...new Set(expenses.map(e => new Date(e.date).getFullYear()))].sort((a,b)=>b-a);
+            const years = [...new Set(expenses.map(e => parseDate(e.date).getFullYear()))].sort((a,b)=>b-a);
             if(yearSelect.options.length <= 1) yearSelect.innerHTML = `<option value="">全部年份</option>` + years.map(y => `<option value="${y}">${y}年</option>`).join('');
             const selectedYear = yearSelect.value;
-            if (selectedYear) filtered = filtered.filter(e => new Date(e.date).getFullYear() == selectedYear);
+            if (selectedYear) filtered = filtered.filter(e => parseDate(e.date).getFullYear() == selectedYear);
 
             let html = '';
             const grouped = {};
@@ -555,6 +611,7 @@
                 html += `<div class="mb-4"><div class="flex justify-between items-center px-2 mb-2"><span class="text-xs text-slate-400 font-medium">${date}</span><span class="text-xs text-slate-400">支 ¥${dayTotal.toFixed(2)}</span></div><div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">`;
                 grouped[date].forEach((e, idx) => {
                     const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                    const idParam = typeof e.id === 'string' ? `'${e.id}'` : e.id;
                     html += `
                     <div class="p-4 flex justify-between items-center ${idx!==grouped[date].length-1 ? 'border-b border-slate-50' : ''}">
                         <div class="flex items-center gap-3">
@@ -566,8 +623,8 @@
                         </div>
                         <div class="flex items-center gap-2">
                             <div class="font-bold text-slate-800 mr-2">¥${e.amount.toFixed(2)}</div>
-                            <button onclick="openEditModal(${e.id})" class="text-indigo-400 w-8 h-8 flex items-center justify-center bg-indigo-50 rounded-lg"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
-                            <button onclick="deleteExpense(${e.id})" class="text-red-400 w-8 h-8 flex items-center justify-center bg-red-50 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
+                            <button onclick="openEditModal(${idParam})" class="text-indigo-400 w-8 h-8 flex items-center justify-center bg-indigo-50 rounded-lg"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+                            <button onclick="deleteExpense(${idParam})" class="text-red-400 w-8 h-8 flex items-center justify-center bg-red-50 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
                         </div>
                     </div>`;
                 });
@@ -608,6 +665,25 @@
             if(monthlyChart) monthlyChart.destroy();
             monthlyChart = new Chart(document.getElementById('monthly-chart'), { type: 'bar', data: { labels: sortedMonths, datasets: [{ label: '支出', data: sortedMonths.map(m=>monthMap[m]), backgroundColor: '#6366f1', borderRadius: 4, barThickness: 12 }] }, options: { scales: { y: { display: false, beginAtZero: true }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } } });
 
+            // --- 财务健康度计算 ---
+            const rigidRatio = total > 0 ? (rigidSum / total) * 100 : 0;
+            const healthValEl = document.getElementById('rigid-ratio-val');
+            const healthBarEl = document.getElementById('rigid-ratio-bar');
+            const healthTextEl = document.getElementById('health-check-text');
+
+            if(healthValEl) healthValEl.textContent = rigidRatio.toFixed(1) + '%';
+            if(healthBarEl) healthBarEl.style.width = rigidRatio + '%';
+            
+            let healthText = '';
+            if(rigidRatio > 70) {
+                healthText = "刚性支出较多，您在外面吃喝比例不高哟~ 👍";
+            } else if(rigidRatio > 40) {
+                healthText = "刚性与非刚性支出比例平衡，生活很健康！ ⚖️";
+            } else {
+                healthText = "非刚性支出占比较高，建议适当控制享乐型消费哦~ 💡";
+            }
+            if(healthTextEl) healthTextEl.textContent = healthText;
+
             document.getElementById('analysis-result').classList.remove('hidden');
         }
 
@@ -638,11 +714,23 @@
                 try {
                     const imported = JSON.parse(ev.target.result);
                     if(Array.isArray(imported)) {
-                        if(confirm(`检测到 ${imported.length} 条记录，是否覆盖？`)) expenses = imported; 
-                        else expenses = expenses.concat(imported);
+                        if(confirm(`检测到 ${imported.length} 条记录，是否覆盖？点击“确定”覆盖现有数据，点击“取消”合并数据。`)) {
+                             expenses = imported; 
+                        } else {
+                            // 智能合并：处理ID冲突
+                            const existingIds = new Set(expenses.map(e => e.id));
+                            const cleanImported = imported.map(item => {
+                                if (existingIds.has(item.id)) {
+                                    // ID 冲突，生成新 ID
+                                    return { ...item, id: generateId() };
+                                }
+                                return item;
+                            });
+                            expenses = expenses.concat(cleanImported);
+                        }
                         saveData(); alert('导入成功'); location.reload();
                     }
-                } catch(err) { alert('文件错误'); }
+                } catch(err) { alert('文件错误或格式不正确'); console.error(err); }
             };
             reader.readAsText(file);
         }
