@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -298,7 +298,7 @@
                     <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
                     <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
                 </label>
-                <button onclick="if(confirm('此操作不可恢复，确定清空？')){localStorage.clear();location.reload()}" class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 transition-colors group">
+                <button onclick="clearAllData()" class="w-full bg-white active:bg-slate-50 border border-slate-200 py-4 rounded-2xl flex items-center justify-between px-6 transition-colors group">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center group-hover:bg-red-500 group-hover:text-white transition-colors"><i class="fa-solid fa-trash"></i></div>
                         <span class="font-medium text-red-500">清空所有记录</span>
@@ -333,6 +333,16 @@
         let categoryChart, rigidChart, monthlyChart;
         let currentFilter = 'thisMonth';
         let customStart = '', customEnd = '';
+        let recordsGroups = [];
+        let recordsGroupHeights = [];
+        let recordsGroupHeightsByDate = new Map();
+        let recordsTotalHeight = 0;
+        let currentPageIndex = 0;
+        let recordsRenderPending = false;
+        const RECORD_ITEM_HEIGHT = 72;
+        const RECORD_HEADER_HEIGHT = 28;
+        const RECORD_GROUP_MARGIN = 16;
+        const RECORD_OVERSCAN_PX = 320;
 
         const categories = [
             {name:'餐饮',emoji:'🍜'}, {name:'出行',emoji:'🚕'}, 
@@ -343,6 +353,140 @@
         ];
 
         // --- 辅助函数 ---
+        const STORAGE_KEY = 'familyExpenses';
+        const DB_NAME = 'family-account';
+        const DB_VERSION = 1;
+        const DB_STORE = 'kv';
+        let dbPromise = null;
+        let storageWarned = false;
+        const MAX_DESC_LEN = 200;
+        const MAX_CATEGORY_LEN = 20;
+        const MAX_ID_LEN = 64;
+
+        function supportsIndexedDB() {
+            return typeof indexedDB !== 'undefined';
+        }
+
+        function openDb() {
+            if (!supportsIndexedDB()) return Promise.resolve(null);
+            if (dbPromise) return dbPromise;
+            dbPromise = new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains(DB_STORE)) {
+                        db.createObjectStore(DB_STORE, { keyPath: 'key' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            return dbPromise;
+        }
+
+        async function idbGet(key) {
+            const db = await openDb();
+            if (!db) return null;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(DB_STORE, 'readonly');
+                const store = tx.objectStore(DB_STORE);
+                const req = store.get(key);
+                req.onsuccess = () => resolve(req.result ? req.result.value : null);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function idbSet(key, value) {
+            const db = await openDb();
+            if (!db) return false;
+            return new Promise((resolve) => {
+                const tx = db.transaction(DB_STORE, 'readwrite');
+                tx.oncomplete = () => resolve(true);
+                tx.onabort = () => resolve(false);
+                tx.onerror = () => resolve(false);
+                tx.objectStore(DB_STORE).put({ key, value });
+            });
+        }
+
+        async function idbClear() {
+            const db = await openDb();
+            if (!db) return false;
+            return new Promise((resolve) => {
+                const tx = db.transaction(DB_STORE, 'readwrite');
+                tx.oncomplete = () => resolve(true);
+                tx.onabort = () => resolve(false);
+                tx.onerror = () => resolve(false);
+                tx.objectStore(DB_STORE).clear();
+            });
+        }
+
+        async function checkStorageUsage() {
+            if (!navigator.storage || !navigator.storage.estimate) return;
+            try {
+                const estimate = await navigator.storage.estimate();
+                if (!estimate || !estimate.quota) return;
+                const ratio = estimate.usage / estimate.quota;
+                if (ratio > 0.85 && !storageWarned) {
+                    storageWarned = true;
+                    const usedMb = (estimate.usage / 1024 / 1024).toFixed(1);
+                    const quotaMb = (estimate.quota / 1024 / 1024).toFixed(1);
+                    alert(`注意：已使用 ${usedMb}MB / ${quotaMb}MB 的存储空间，建议尽快备份并清理旧数据。`);
+                }
+            } catch (e) {
+                console.warn('Storage estimate failed:', e);
+            }
+        }
+
+        async function requestPersistentStorage() {
+            if (!navigator.storage || !navigator.storage.persist) return;
+            try {
+                await navigator.storage.persist();
+            } catch (e) {
+                console.warn('Storage persist request failed:', e);
+            }
+        }
+
+        async function initStorage() {
+            await requestPersistentStorage();
+            await checkStorageUsage();
+        }
+
+        function normalizeText(value, maxLen) {
+            if (value === null || value === undefined) return '';
+            let s = String(value);
+            s = s.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+            if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+            return s;
+        }
+
+        function normalizeId(value) {
+            const raw = normalizeText(value, MAX_ID_LEN);
+            const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '');
+            return cleaned;
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function sanitizeExpense(item) {
+            if (!item || typeof item !== 'object') return null;
+            const amount = Number(item.amount);
+            const date = normalizeText(item.date, 10);
+            const category = normalizeText(item.category, MAX_CATEGORY_LEN);
+            const desc = normalizeText(item.desc, MAX_DESC_LEN);
+            const isRigid = !!item.isRigid;
+            const id = normalizeId(item.id) || generateId();
+            if (!amount || !date || !category) return null;
+            return { id, date, amount, category, isRigid, desc };
+        }
+
         // 安全解析 YYYY-MM-DD 为本地日期对象，避免 UTC 偏移导致的日期偏差
         function parseDate(dateStr) {
             if (!dateStr) return new Date();
@@ -358,28 +502,70 @@
             return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
         }
 
-        function loadData() {
+        async function loadData() {
+            // 迁移旧 localStorage 数据到 IndexedDB（如可用）
             try {
-                const saved = localStorage.getItem('familyExpenses');
-                expenses = saved ? JSON.parse(saved) : [];
-            } catch(e) { expenses = []; }
+                const savedLocal = localStorage.getItem(STORAGE_KEY);
+                if (savedLocal) {
+                    const parsed = JSON.parse(savedLocal);
+                    expenses = Array.isArray(parsed) ? parsed.map(sanitizeExpense).filter(Boolean) : [];
+                    if (supportsIndexedDB()) {
+                        const ok = await idbSet(STORAGE_KEY, expenses);
+                        if (ok) localStorage.removeItem(STORAGE_KEY);
+                    }
+                    return;
+                }
+            } catch (e) {
+                console.warn('LocalStorage migration failed:', e);
+            }
+
+            if (!supportsIndexedDB()) {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    const parsed = saved ? JSON.parse(saved) : [];
+                    expenses = Array.isArray(parsed) ? parsed.map(sanitizeExpense).filter(Boolean) : [];
+                } catch (e) {
+                    expenses = [];
+                }
+                return;
+            }
+
+            try {
+                const saved = await idbGet(STORAGE_KEY);
+                expenses = Array.isArray(saved) ? saved.map(sanitizeExpense).filter(Boolean) : [];
+            } catch (e) {
+                console.warn('IndexedDB load failed:', e);
+                expenses = [];
+            }
         }
 
-        function saveData() {
+        async function saveData() {
             try {
-                const data = JSON.stringify(expenses);
-                localStorage.setItem('familyExpenses', data);
-                
-                // 检查存储空间 (简单估算)
-                if (data.length > 4.5 * 1024 * 1024) {
-                    alert('注意：您的数据量已接近存储上限 (5MB)，建议尽快备份并清理旧数据。');
+                if (!supportsIndexedDB()) {
+                    const data = JSON.stringify(expenses);
+                    localStorage.setItem(STORAGE_KEY, data);
+                    if (data.length > 4.5 * 1024 * 1024) {
+                        alert('注意：您的数据量已接近存储上限 (5MB)，建议尽快备份并清理旧数据。');
+                    }
+                    return true;
                 }
+
+                const ok = await idbSet(STORAGE_KEY, expenses);
+                if (!ok) {
+                    alert('保存失败：可能存储空间已满，请先导出备份并清理旧数据。');
+                    return false;
+                }
+
+                await checkStorageUsage();
+                return true;
             } catch (e) {
                 if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
                     alert('保存失败：存储空间已满！请先导出备份，然后清理旧数据。');
                 } else {
                     console.error('Save failed:', e);
+                    alert('保存失败：请稍后再试。');
                 }
+                return false;
             }
         }
 
@@ -451,30 +637,38 @@
             document.getElementById(pages[n]).classList.remove('hidden');
             document.querySelectorAll('.nav-item').forEach((b,i) => i===n ? b.classList.add('nav-active') : b.classList.remove('nav-active'));
             document.getElementById('content-area').scrollTop = 0;
+            currentPageIndex = n;
             if(n===1) { renderQuickFilters(); renderRecords(); }
             if(n===2) document.getElementById('analysis-result').classList.add('hidden');
         }
 
         // --- 记账与修改 ---
 
-        function addExpense() {
+        async function addExpense() {
             const amountInput = document.getElementById('amount');
             const amount = parseFloat(amountInput.value);
             const date = document.getElementById('date').value;
             const isRigid = document.getElementById('isRigid').checked;
             const descInput = document.getElementById('desc');
-            const desc = descInput.value.trim();
+            const desc = normalizeText(descInput.value, MAX_DESC_LEN);
+            const safeCategory = normalizeText(selectedCategory, MAX_CATEGORY_LEN);
 
-            if(!amount || !date || !selectedCategory) { 
+            if(!amount || !date || !safeCategory) { 
                 amountInput.classList.add('bg-red-50');
                 setTimeout(()=>amountInput.classList.remove('bg-red-50'), 200);
-                if(!selectedCategory) alert('请选择支出类型');
+                if(!safeCategory) alert('请选择支出类型');
                 return; 
             }
 
             // 使用 generateId() 替代 Date.now()
-            expenses.unshift({id: generateId(), date, amount, category: selectedCategory, isRigid, desc: desc || ''});
-            saveData(); renderHome(); 
+            const newItem = {id: generateId(), date, amount, category: safeCategory, isRigid, desc: desc || ''};
+            expenses.unshift(newItem);
+            const ok = await saveData();
+            if (!ok) {
+                expenses = expenses.filter(e => e.id !== newItem.id);
+                return;
+            }
+            renderHome();
             
             const btn = document.querySelector('button[onclick="addExpense()"]');
             const originalHTML = btn.innerHTML;
@@ -509,27 +703,34 @@
         }
 
         // 保存修改
-        function saveEdit() {
+        async function saveEdit() {
             if(!currentEditId) return;
             const amount = parseFloat(document.getElementById('edit-amount').value);
             const date = document.getElementById('edit-date').value;
+            const desc = normalizeText(document.getElementById('edit-desc').value, MAX_DESC_LEN);
+            const safeCategory = normalizeText(editSelectedCategory, MAX_CATEGORY_LEN);
             
-            if(!amount || !date || !editSelectedCategory) {
+            if(!amount || !date || !safeCategory) {
                 alert('金额、日期和分类不能为空');
                 return;
             }
 
             const index = expenses.findIndex(e => e.id === currentEditId);
             if(index !== -1) {
+                const prev = { ...expenses[index] };
                 expenses[index] = {
                     ...expenses[index],
                     amount: amount,
                     date: date,
-                    category: editSelectedCategory,
+                    category: safeCategory,
                     isRigid: document.getElementById('edit-isRigid').checked,
-                    desc: document.getElementById('edit-desc').value.trim()
+                    desc: desc
                 };
-                saveData();
+                const ok = await saveData();
+                if (!ok) {
+                    expenses[index] = prev;
+                    return;
+                }
                 renderHome();
                 renderRecords();
                 closeEditModal();
@@ -550,6 +751,9 @@
             let html = '';
             recent.forEach(e => {
                 const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                const safeCategory = escapeHtml(e.category);
+                const safeDesc = e.desc ? escapeHtml(e.desc) : '';
+                const safeDate = escapeHtml((e.date || '').substring(5));
                 // ID 需要转义引号，虽然这里一般是安全的，但为了稳健
                 const idParam = typeof e.id === 'string' ? `'${e.id}'` : e.id;
                 html += `
@@ -558,10 +762,10 @@
                         <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-lg">${catObj.emoji}</div>
                         <div>
                             <div class="font-medium text-slate-800 text-sm flex items-center gap-2">
-                                ${e.category} 
-                                ${e.desc ? `<span class="text-xs text-slate-400 font-normal truncate max-w-[100px]">${e.desc}</span>` : ''}
+                                ${safeCategory} 
+                                ${safeDesc ? `<span class="text-xs text-slate-400 font-normal truncate max-w-[100px]">${safeDesc}</span>` : ''}
                             </div>
-                            <div class="text-xs text-slate-400 mt-0.5">${e.date.substring(5)}</div>
+                            <div class="text-xs text-slate-400 mt-0.5">${safeDate}</div>
                         </div>
                     </div>
                     <div class="flex items-center">
@@ -577,11 +781,17 @@
             document.getElementById('recent-list').innerHTML = html || '<div class="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">暂无近期记录</div>';
         }
 
-        function deleteExpense(id) {
+        async function deleteExpense(id) {
             if(confirm('确定删除这条记录吗？')) {
                 // 使用 loose equality (==) 兼容旧数据（数字ID）和新数据（字符串ID）
+                const prev = expenses;
                 expenses = expenses.filter(e => e.id != id);
-                saveData(); renderHome(); renderRecords();
+                const ok = await saveData();
+                if (!ok) {
+                    expenses = prev;
+                    return;
+                }
+                renderHome(); renderRecords();
             }
         }
 
@@ -601,24 +811,101 @@
             const selectedYear = yearSelect.value;
             if (selectedYear) filtered = filtered.filter(e => parseDate(e.date).getFullYear() == selectedYear);
 
-            let html = '';
-            const grouped = {};
-            filtered.forEach(e => { if(!grouped[e.date]) grouped[e.date] = []; grouped[e.date].push(e); });
-            const sortedDates = Object.keys(grouped).sort((a,b) => b.localeCompare(a));
+            buildRecordsGroups(filtered);
+            renderVirtualRecords(true);
+        }
 
-            sortedDates.forEach(date => {
-                const dayTotal = grouped[date].reduce((s,e)=>s+e.amount,0);
-                html += `<div class="mb-4"><div class="flex justify-between items-center px-2 mb-2"><span class="text-xs text-slate-400 font-medium">${date}</span><span class="text-xs text-slate-400">支 ¥${dayTotal.toFixed(2)}</span></div><div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">`;
-                grouped[date].forEach((e, idx) => {
+        function buildRecordsGroups(filtered) {
+            recordsGroupHeightsByDate.clear();
+            recordsGroups = [];
+            recordsGroupHeights = [];
+            recordsTotalHeight = 0;
+            if (!filtered || filtered.length === 0) return;
+
+            const dayTotals = new Map();
+            const grouped = new Map();
+            const dateOrder = [];
+
+            for (let i = 0; i < filtered.length; i += 1) {
+                const e = filtered[i];
+                dayTotals.set(e.date, (dayTotals.get(e.date) || 0) + e.amount);
+                if (!grouped.has(e.date)) {
+                    grouped.set(e.date, []);
+                    dateOrder.push(e.date);
+                }
+                grouped.get(e.date).push(e);
+            }
+
+            for (let i = 0; i < dateOrder.length; i += 1) {
+                const date = dateOrder[i];
+                const items = grouped.get(date) || [];
+                const dayTotal = dayTotals.get(date) || 0;
+                const cached = recordsGroupHeightsByDate.get(date);
+                const estimated = RECORD_HEADER_HEIGHT + (items.length * RECORD_ITEM_HEIGHT) + RECORD_GROUP_MARGIN;
+                const height = typeof cached === 'number' && cached > 0 ? cached : estimated;
+                recordsGroups.push({ date, items, dayTotal, height });
+                recordsGroupHeights.push(height);
+                recordsTotalHeight += height;
+            }
+        }
+
+        function renderVirtualRecords(force) {
+            if (currentPageIndex !== 1) return;
+            const list = document.getElementById('records-list');
+            const scroller = document.getElementById('content-area');
+            if (!list || !scroller) return;
+
+            if (!recordsGroups.length) {
+                list.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-300"><i class="fa-solid fa-clipboard-list text-4xl mb-2 opacity-50"></i><p class="text-xs">该筛选条件下没有记录</p></div>';
+                return;
+            }
+
+            const top = list.offsetTop;
+            const scrollTop = scroller.scrollTop;
+            const viewTop = Math.max(0, scrollTop - top - RECORD_OVERSCAN_PX);
+            const viewBottom = scrollTop - top + scroller.clientHeight + RECORD_OVERSCAN_PX;
+
+            let startIdx = 0;
+            let endIdx = recordsGroups.length - 1;
+            let acc = 0;
+            for (let i = 0; i < recordsGroups.length; i += 1) {
+                const next = acc + recordsGroupHeights[i];
+                if (next >= viewTop) { startIdx = i; break; }
+                acc = next;
+            }
+            acc = 0;
+            for (let i = 0; i < recordsGroups.length; i += 1) {
+                acc += recordsGroupHeights[i];
+                if (acc >= viewBottom) { endIdx = i; break; }
+            }
+
+            let topSpacer = 0;
+            for (let i = 0; i < startIdx; i += 1) topSpacer += recordsGroupHeights[i];
+            let bottomSpacer = 0;
+            for (let i = endIdx + 1; i < recordsGroups.length; i += 1) bottomSpacer += recordsGroupHeights[i];
+
+            let html = '';
+            if (topSpacer > 0) html += `<div style="height:${topSpacer}px"></div>`;
+
+            for (let i = startIdx; i <= endIdx; i += 1) {
+                const g = recordsGroups[i];
+                const safeDate = escapeHtml(g.date);
+                html += `<div class="mb-4" data-date="${safeDate}"><div class="flex justify-between items-center px-2 mb-2"><span class="text-xs text-slate-400 font-medium">${safeDate}</span><span class="text-xs text-slate-400">支 ¥${g.dayTotal.toFixed(2)}</span></div><div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">`;
+                const items = g.items;
+                for (let idx = 0; idx < items.length; idx += 1) {
+                    const e = items[idx];
                     const catObj = categories.find(c => c.name === e.category) || {emoji:'📄'};
+                    const safeCategory = escapeHtml(e.category);
+                    const safeDesc = e.desc ? escapeHtml(e.desc) : '';
                     const idParam = typeof e.id === 'string' ? `'${e.id}'` : e.id;
+                    const isLast = (idx === items.length - 1);
                     html += `
-                    <div class="p-4 flex justify-between items-center ${idx!==grouped[date].length-1 ? 'border-b border-slate-50' : ''}">
+                    <div class="p-4 flex justify-between items-center ${!isLast ? 'border-b border-slate-50' : ''}">
                         <div class="flex items-center gap-3">
                             <div class="text-xl w-8 text-center">${catObj.emoji}</div>
                             <div>
-                                <div class="text-sm font-medium text-slate-700">${e.category} ${e.isRigid?'<i class="fa-solid fa-circle text-[6px] text-emerald-400 ml-1 align-middle"></i>':''}</div>
-                                ${e.desc ? `<div class="text-xs text-slate-400">${e.desc}</div>` : ''}
+                                <div class="text-sm font-medium text-slate-700">${safeCategory} ${e.isRigid?'<i class="fa-solid fa-circle text-[6px] text-emerald-400 ml-1 align-middle"></i>':''}</div>
+                                ${safeDesc ? `<div class="text-xs text-slate-400">${safeDesc}</div>` : ''}
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
@@ -627,10 +914,45 @@
                             <button onclick="deleteExpense(${idParam})" class="text-red-400 w-8 h-8 flex items-center justify-center bg-red-50 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
                         </div>
                     </div>`;
-                });
+                }
                 html += `</div></div>`;
+            }
+
+            if (bottomSpacer > 0) html += `<div style="height:${bottomSpacer}px"></div>`;
+            const sig = `${startIdx}-${endIdx}`;
+            if (force || list.dataset.vsig !== sig) {
+                list.innerHTML = html;
+                list.dataset.vsig = sig;
+            }
+
+            measureVisibleGroupHeights(list);
+        }
+
+        function scheduleRecordsRender() {
+            if (recordsRenderPending) return;
+            recordsRenderPending = true;
+            requestAnimationFrame(() => {
+                recordsRenderPending = false;
+                renderVirtualRecords(false);
             });
-            document.getElementById('records-list').innerHTML = html || '<div class="flex flex-col items-center justify-center py-12 text-slate-300"><i class="fa-solid fa-clipboard-list text-4xl mb-2 opacity-50"></i><p class="text-xs">该筛选条件下没有记录</p></div>';
+        }
+
+        function measureVisibleGroupHeights(list) {
+            const groups = list.querySelectorAll('[data-date]');
+            let changed = false;
+            groups.forEach(el => {
+                const date = el.getAttribute('data-date');
+                const height = el.getBoundingClientRect().height;
+                const cached = recordsGroupHeightsByDate.get(date);
+                if (!cached || Math.abs(cached - height) > 2) {
+                    recordsGroupHeightsByDate.set(date, height);
+                    changed = true;
+                }
+            });
+            if (changed) {
+                recordsGroupHeights = recordsGroups.map(g => recordsGroupHeightsByDate.get(g.date) || g.height);
+                recordsTotalHeight = recordsGroupHeights.reduce((s, h) => s + h, 0);
+            }
         }
 
         // --- 统计与杂项 ---
@@ -692,7 +1014,10 @@
             const totalAmount = expenses.reduce((sum, item) => sum + item.amount, 0).toFixed(2);
             let html = `<div class="print-header"><div class="print-title">家庭账单</div><div class="print-meta"><span>日期: ${new Date().toLocaleDateString()}</span></div></div><table class="print-table"><thead><tr><th>日期</th><th>分类</th><th>备注</th><th>类型</th><th style="text-align:right">金额</th></tr></thead><tbody>`;
             expenses.forEach(e => {
-                html += `<tr><td>${e.date}</td><td>${e.category}</td><td style="color:#555">${e.desc || '-'}</td><td class="${e.isRigid ? 'print-type-rigid' : ''}">${e.isRigid ? '刚性' : '非刚性'}</td><td class="print-amount">¥${e.amount.toFixed(2)}</td></tr>`;
+                const safeDate = escapeHtml(e.date);
+                const safeCategory = escapeHtml(e.category);
+                const safeDesc = escapeHtml(e.desc || '-');
+                html += `<tr><td>${safeDate}</td><td>${safeCategory}</td><td style="color:#555">${safeDesc}</td><td class="${e.isRigid ? 'print-type-rigid' : ''}">${e.isRigid ? '刚性' : '非刚性'}</td><td class="print-amount">¥${e.amount.toFixed(2)}</td></tr>`;
             });
             html += `</tbody></table><div class="print-footer">总计: ¥${totalAmount}</div>`;
             container.innerHTML = html;
@@ -704,22 +1029,29 @@
             const blob = new Blob([dataStr], {type: 'application/json'});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = `小账本备份_${new Date().toISOString().slice(0,10)}.json`; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
         }
 
         function importData(e) {
             const file = e.target.files[0];
             if(!file) return;
             const reader = new FileReader();
-            reader.onload = function(ev) {
+            reader.onload = async function(ev) {
                 try {
                     const imported = JSON.parse(ev.target.result);
                     if(Array.isArray(imported)) {
-                        if(confirm(`检测到 ${imported.length} 条记录，是否覆盖？点击“确定”覆盖现有数据，点击“取消”合并数据。`)) {
-                             expenses = imported; 
+                        const sanitized = imported.map(sanitizeExpense).filter(Boolean);
+                        if (sanitized.length === 0) {
+                            alert('文件中没有可用的记录');
+                            return;
+                        }
+                        const prev = expenses;
+                        if(confirm(`检测到 ${sanitized.length} 条记录，是否覆盖？点击“确定”覆盖现有数据，点击“取消”合并数据。`)) {
+                             expenses = sanitized; 
                         } else {
                             // 智能合并：处理ID冲突
                             const existingIds = new Set(expenses.map(e => e.id));
-                            const cleanImported = imported.map(item => {
+                            const cleanImported = sanitized.map(item => {
                                 if (existingIds.has(item.id)) {
                                     // ID 冲突，生成新 ID
                                     return { ...item, id: generateId() };
@@ -728,15 +1060,45 @@
                             });
                             expenses = expenses.concat(cleanImported);
                         }
-                        saveData(); alert('导入成功'); location.reload();
+                        const ok = await saveData();
+                        if (!ok) {
+                            expenses = prev;
+                            return;
+                        }
+                        alert('导入成功'); location.reload();
                     }
                 } catch(err) { alert('文件错误或格式不正确'); console.error(err); }
             };
             reader.readAsText(file);
         }
 
-        window.onload = function() {
-            loadData();
+        async function clearAllData() {
+            if (!confirm('此操作不可恢复，确定清空？')) return;
+            const prev = expenses;
+            expenses = [];
+            if (supportsIndexedDB()) {
+                const ok = await idbClear();
+                localStorage.removeItem(STORAGE_KEY);
+                if (!ok) {
+                    expenses = prev;
+                    alert('清空失败：请稍后再试。');
+                    return;
+                }
+            } else {
+                try {
+                    localStorage.removeItem(STORAGE_KEY);
+                } catch (e) {
+                    expenses = prev;
+                    alert('清空失败：请稍后再试。');
+                    return;
+                }
+            }
+            location.reload();
+        }
+
+        window.onload = async function() {
+            await loadData();
+            await initStorage();
             const today = new Date().toISOString().slice(0,10);
             if(document.getElementById('date')) document.getElementById('date').value = today;
             if(document.getElementById('custom-start')) document.getElementById('custom-start').value = new Date(new Date().setDate(new Date().getDate()-30)).toISOString().slice(0,10);
@@ -748,6 +1110,8 @@
             renderQuickFilters();
             switchPage(0);
             renderHome();
+            const scroller = document.getElementById('content-area');
+            if (scroller) scroller.addEventListener('scroll', scheduleRecordsRender, { passive: true });
         };
     </script>
 </body>
